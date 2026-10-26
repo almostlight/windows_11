@@ -1,10 +1,11 @@
 .shell powershell
 
 # Reload whkd configuration
-win + o                  : taskkill /f /im whkd.exe; Start-Process whkd -WindowStyle hidden
 win + shift + o          : komorebic reload-configuration
-win + i                  : komorebic toggle-shortcuts
 win + shift + c          : komorebic stop; komorebic start --whkd --bar
+win + shift + e          : logoff
+win + o                  : taskkill /f /im whkd.exe; Start-Process whkd -WindowStyle hidden
+#win + i                  : komorebic toggle-shortcuts
 
 # Window management
 win + q                  : komorebic close
@@ -64,3 +65,4 @@ win + shift + 6          : komorebic move-to-workspace 5
 win + shift + 7          : komorebic move-to-workspace 6
 win + shift + 8          : komorebic move-to-workspace 7
 win + shift + 9          : komorebic move-to-workspace 8
+

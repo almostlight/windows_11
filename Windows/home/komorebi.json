@@ -32,11 +32,15 @@
   { "kind": "Exe", "id": "MATLAB.exe" }
 ],
 "float_rules": [
-  { "kind": "Title", "id": "Figure " },
-  { "kind": "Exe", "id": "Spotify.exe" },
   { "kind": "Class", "id": "SunAwtFrame" },
   { "kind": "Class", "id": "ApplicationFrameWindow" },
-  { "kind": "Class", "id": "AutoHotkeyGUI" }
+  { "kind": "Class", "id": "AutoHotkeyGUI" },
+  { "kind": "Class", "id": "AutoHotkey" },
+  { "kind": "Exe", "id": "SnippingTool.exe" },
+  { "kind": "Exe", "id": "AutoHotkeyUX.exe" },
+  { "kind": "Exe", "id": "Spotify.exe" },
+  { "kind": "Exe", "id": "NordVPN.exe" },
+  { "kind": "Title", "id": "Figure " }
 ],
 
   "monitors": [
@@ -62,4 +66,5 @@
     }
   ]
 }
+
 
