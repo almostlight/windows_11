@@ -54,6 +54,7 @@
     {
       "Time": {
         "enable": true,
+        "label_prefix": "Text",
         "format": {
           "Custom": "%H:%M"
         }
@@ -62,6 +63,7 @@
     {
       "Date": {
         "enable": true,
+        "label_prefix": "Text",
         "format": {
           "Custom": "%d.%m"
         }
