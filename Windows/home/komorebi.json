@@ -48,19 +48,19 @@
     {
       "workspaces": [
         {
-          "name": "I",
+          "name": "㊀",
           "layout": "BSP"
         },
         {
-          "name": "II",
+          "name": "㊁",
           "layout": "BSP"
         },
         {
-          "name": "III",
+          "name": "㊂",
           "layout": "BSP"
         },
         {
-          "name": "IV",
+          "name": "㊃",
           "layout": "BSP"
         }
       ]
