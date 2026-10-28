@@ -8,6 +8,7 @@ CapsLock::Send "{Esc}"
 +CapsLock::SetCapsLockState !GetKeyState("CapsLock", "T")
 
 #Enter::Run "wt.exe"
+#+Enter::Run "pwsh.exe"
 ; #e::Run "files:"
 #e::Run "explorer.exe"
 #v::Send "#v"
