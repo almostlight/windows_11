@@ -19,7 +19,7 @@
       "command": "komorebi-bar",
       "position": "Top",
       "height": 20,
-      "font": "Cascadia Code",
+      "font": "FiraCode Nerd Font Mono",
       "font_size": 10,
       "tray_output": "All"
     }
@@ -66,5 +66,4 @@
     }
   ]
 }
-
 

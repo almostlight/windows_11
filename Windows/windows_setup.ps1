@@ -190,6 +190,68 @@ function Get-RawRepositoryFile($RelativePath, $Out) {
         $Out
 }
 
+function Install-FontFiles($FontFiles) {
+    $fontsPath = Join-Path $env:WINDIR "Fonts"
+    $fontRegistryPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+
+    foreach ($fontFile in $FontFiles) {
+        $target = Join-Path $fontsPath $fontFile.Name
+        Copy-Item $fontFile.FullName $target -Force
+
+        $fontType = switch ([IO.Path]::GetExtension($fontFile.Name).ToLowerInvariant()) {
+            ".otf" { "OpenType" }
+            default { "TrueType" }
+        }
+        $fontDisplayName = "$([IO.Path]::GetFileNameWithoutExtension($fontFile.Name)) ($fontType)"
+        New-ItemProperty `
+            -Path $fontRegistryPath `
+            -Name $fontDisplayName `
+            -Value $fontFile.Name `
+            -PropertyType String `
+            -Force | Out-Null
+    }
+}
+
+function Set-WindowsTerminalFont {
+    $settingsPaths = @(
+        (Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json"),
+        (Join-Path $env:LOCALAPPDATA "Microsoft\Windows Terminal\settings.json")
+    ) | Where-Object { Test-Path $_ -PathType Leaf }
+
+    if (-not $settingsPaths) {
+        Write-SetupLog "Windows Terminal settings were not found; skipping terminal font configuration" "WARN"
+        return
+    }
+
+    foreach ($settingsPath in $settingsPaths) {
+        $settings = Get-Content $settingsPath -Raw
+        $defaultsPattern = '(?s)("profiles"\s*:\s*\{\s*"defaults"\s*:\s*\{)(.*?)(\}\s*,\s*"list"\s*:)'
+        $defaultsMatch = [regex]::Match($settings, $defaultsPattern)
+        if (-not $defaultsMatch.Success) {
+            throw "Could not locate Windows Terminal profiles.defaults in $settingsPath"
+        }
+
+        $defaults = $defaultsMatch.Groups[2].Value
+        $fontPattern = '(?s)"font"\s*:\s*\{.*?\}'
+        if ([regex]::IsMatch($defaults, $fontPattern)) {
+            $defaults = [regex]::Replace(
+                $defaults,
+                $fontPattern,
+                '"font": { "face": "FiraCode Nerd Font Mono" }',
+                1
+            )
+        } else {
+            $defaults = "`n            `"font`": { `"face`": `"FiraCode Nerd Font Mono`" }," + $defaults
+        }
+
+        $settings = $settings.Substring(0, $defaultsMatch.Groups[2].Index) +
+            $defaults +
+            $settings.Substring($defaultsMatch.Groups[2].Index + $defaultsMatch.Groups[2].Length)
+        Set-Content $settingsPath $settings -Encoding utf8
+        Write-SetupLog "Set Windows Terminal default font to FiraCode Nerd Font Mono in $settingsPath"
+    }
+}
+
 # =========================
 # CORE SYSTEM SETUP BLOCKS
 # =========================
@@ -201,6 +263,63 @@ Invoke-Step "winget" {
         Add-AppxPackage $pkg
         Start-Sleep 5
     }
+}
+
+Invoke-Step "fonts" {
+    $fontArchive = Join-Path $Downloads "WindowsSetup-fonts"
+    $firaCodeArchive = Join-Path $Downloads "FiraCode.zip"
+
+    Get-File `
+        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" `
+        $firaCodeArchive
+
+    if (Test-Path $fontArchive) {
+        Remove-Item $fontArchive -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $fontArchive | Out-Null
+
+    $firaCodeDirectory = Join-Path $fontArchive "FiraCode"
+    $baiJamjureeDirectory = Join-Path $fontArchive "BaiJamjuree"
+    Expand-Archive $firaCodeArchive $firaCodeDirectory -Force
+
+    New-Item -ItemType Directory -Force -Path $baiJamjureeDirectory | Out-Null
+    $baiJamjureeAssets = Invoke-RestMethod `
+        "https://api.github.com/repos/google/fonts/contents/ofl/baijamjuree" `
+        -Headers @{ "User-Agent" = "WindowsSetup" } |
+        Where-Object { $_.name -match "\.(ttf|otf)$" }
+    foreach ($asset in $baiJamjureeAssets) {
+        Get-File `
+            "https://raw.githubusercontent.com/google/fonts/main/ofl/baijamjuree/$($asset.name)" `
+            (Join-Path $baiJamjureeDirectory $asset.name)
+    }
+
+    $firaCodeFiles = Get-ChildItem $firaCodeDirectory -Recurse -File |
+        Where-Object { $_.Name -like "FiraCodeNerdFont*.ttf" }
+    $baiJamjureeFiles = Get-ChildItem $baiJamjureeDirectory -Recurse -File |
+        Where-Object { $_.Extension -in @(".ttf", ".otf") }
+
+    if (-not $firaCodeFiles) {
+        throw "FiraCode Nerd Font files were not found in the downloaded archive."
+    }
+    if (-not $baiJamjureeFiles) {
+        throw "Bai Jamjuree font files were not found in the downloaded archive."
+    }
+
+    Install-FontFiles (@($firaCodeFiles) + @($baiJamjureeFiles))
+
+    $fontSubstitutesPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"
+    New-Item -Path $fontSubstitutesPath -Force | Out-Null
+    New-ItemProperty `
+        -Path $fontSubstitutesPath `
+        -Name "Segoe UI" `
+        -Value "FiraCode Nerd Font" `
+        -PropertyType String `
+        -Force | Out-Null
+
+    Write-SetupLog "Installed FiraCode NF, FiraCode Mono NF, and Bai Jamjuree system-wide"
+    Write-SetupLog "Set the Windows UI font substitution to FiraCode Nerd Font; sign out or restart to apply it"
+
+    Set-WindowsTerminalFont
 }
 
 function Install-SetupPackage($id) {
