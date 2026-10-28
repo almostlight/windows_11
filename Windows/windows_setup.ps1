@@ -196,7 +196,9 @@ function Install-FontFiles($FontFiles) {
 
     foreach ($fontFile in $FontFiles) {
         $target = Join-Path $fontsPath $fontFile.Name
-        Copy-Item $fontFile.FullName $target -Force
+        if (-not (Test-Path $target -PathType Leaf)) {
+            Copy-Item $fontFile.FullName $target
+        }
 
         $fontType = switch ([IO.Path]::GetExtension($fontFile.Name).ToLowerInvariant()) {
             ".otf" { "OpenType" }
