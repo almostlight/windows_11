@@ -69,7 +69,8 @@
     },
     {
       "Battery": {
-        "enable": true
+        "enable": true,
+        "label_prefix": "Text"
       }
     }
   ]
