@@ -377,24 +377,45 @@ Invoke-Step "home-config-and-startup" {
     $repoDir = Join-Path $BasePath ".almostlight-windows-setup"
     
     if (-not (Test-Path $repoDir)) {
-        $repoZip = Join-Path $env:TEMP "WindowsSetup-repo.zip"
-        $repoUrl = "https://github.com/almostlight/WindowsSetup/archive/refs/heads/main.zip"
-        $tempExtractDir = Join-Path $env:TEMP "WindowsSetup-extract"
-        
-        Get-File $repoUrl $repoZip
-        if (Test-Path $tempExtractDir) {
+        $git = Get-Command git -ErrorAction SilentlyContinue
+        if ($git) {
+            Write-SetupLog "Cloning repository with git"
+            & git clone https://github.com/almostlight/WindowsSetup.git $repoDir --depth 1
+            if ($LASTEXITCODE -ne 0) {
+                throw "Git clone failed with exit code $LASTEXITCODE"
+            }
+        } else {
+            Write-SetupLog "Git not found, falling back to ZIP download"
+            $repoZip = Join-Path $env:TEMP "WindowsSetup-repo.zip"
+            $repoUrl = "https://github.com/almostlight/WindowsSetup/archive/refs/heads/main.zip"
+            $tempExtractDir = Join-Path $env:TEMP "WindowsSetup-extract"
+            
+            Get-File $repoUrl $repoZip
+            if (Test-Path $tempExtractDir) {
+                Remove-Item $tempExtractDir -Recurse -Force
+            }
+            New-Item -ItemType Directory -Force -Path $tempExtractDir | Out-Null
+            Expand-Archive $repoZip $tempExtractDir -Force
+            
+            $extractedDir = Get-ChildItem -Path $tempExtractDir -Directory | Select-Object -First 1
+            if (-not $extractedDir) {
+                throw "No directory found after extracting repository ZIP"
+            }
+            Copy-Item $extractedDir.FullName $repoDir -Recurse -Force
             Remove-Item $tempExtractDir -Recurse -Force
+            
+            Write-SetupLog "Initializing Git repository"
+            Push-Location $repoDir
+            & git init
+            & git remote add origin https://github.com/almostlight/WindowsSetup.git
+            & git fetch --depth 1 origin main
+            & git checkout main
+            Pop-Location
+            if ($LASTEXITCODE -ne 0) {
+                throw "Git initialization failed with exit code $LASTEXITCODE"
+            }
         }
-        New-Item -ItemType Directory -Force -Path $tempExtractDir | Out-Null
-        Expand-Archive $repoZip $tempExtractDir -Force
-        
-        $extractedDir = Get-ChildItem -Path $tempExtractDir -Directory | Select-Object -First 1
-        if (-not $extractedDir) {
-            throw "No directory found after extracting repository ZIP"
-        }
-        Copy-Item $extractedDir.FullName $repoDir -Recurse -Force
-        Remove-Item $tempExtractDir -Recurse -Force
-        Write-SetupLog "Cloned repository to $repoDir"
+        Write-SetupLog "Repository cloned to $repoDir"
     } else {
         Write-SetupLog "Repository already exists at $repoDir"
     }
