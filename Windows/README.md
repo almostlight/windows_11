@@ -18,6 +18,12 @@ Checkpoint-Computer -Description "Before Automation Script" -RestorePointType "M
 irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup.ps1 | iex
 ```
 
+#### Or, for latest features:
+
+```powershell
+irm https://raw.githubusercontent.com/almostlight/WindowsSetup/feature/Windows/windows_setup.ps1 | iex
+```
+
 ### Manual Installation
 
 1. Download the script:

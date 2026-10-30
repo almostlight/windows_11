@@ -374,36 +374,81 @@ Invoke-Step "packages" {
 }
 
 Invoke-Step "home-config-and-startup" {
-    $sourceHome = Join-Path $env:TEMP "WindowsSetup-home"
+    $repoDir = Join-Path $BasePath ".almostlight-windows-setup"
+    
+    if (-not (Test-Path $repoDir)) {
+        $repoZip = Join-Path $env:TEMP "WindowsSetup-repo.zip"
+        $repoUrl = "https://github.com/almostlight/WindowsSetup/archive/refs/heads/main.zip"
+        $tempExtractDir = Join-Path $env:TEMP "WindowsSetup-extract"
+        
+        Get-File $repoUrl $repoZip
+        if (Test-Path $tempExtractDir) {
+            Remove-Item $tempExtractDir -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $tempExtractDir | Out-Null
+        Expand-Archive $repoZip $tempExtractDir -Force
+        
+        $extractedDir = Get-ChildItem -Path $tempExtractDir -Directory | Select-Object -First 1
+        if (-not $extractedDir) {
+            throw "No directory found after extracting repository ZIP"
+        }
+        Copy-Item $extractedDir.FullName $repoDir -Recurse -Force
+        Remove-Item $tempExtractDir -Recurse -Force
+        Write-SetupLog "Cloned repository to $repoDir"
+    } else {
+        Write-SetupLog "Repository already exists at $repoDir"
+    }
+    
+    $repoHomeDir = Join-Path $repoDir "Windows\home"
+    
     $configFiles = @{
-        "komorebi.bar.json" = "komorebi.bar.json"
-        "komorebi.json" = "komorebi.json"
         ".config\whkdrc" = ".config\whkdrc"
         "scripts\autohotkey\loop_accept.ahk" = "scripts\autohotkey\loop_accept.ahk"
         "scripts\autohotkey\master.ahk" = "scripts\autohotkey\master.ahk"
         "scripts\windows-startup.ps1" = "scripts\windows-startup.ps1"
     }
-
+    
+    $symlinkFiles = @("komorebi.bar.json", "komorebi.json")
+    
     foreach ($relativePath in $configFiles.Keys) {
-        $target = Join-Path $sourceHome $configFiles[$relativePath]
+        $sourceFile = Join-Path $repoHomeDir $relativePath
+        $target = Join-Path $BasePath $configFiles[$relativePath]
+        
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
-        $repositoryPath = $relativePath -replace "\\", "/"
+        
         if ($relativePath -eq "scripts\windows-startup.ps1" -and
             (Test-Path (Join-Path $env:TEMP "windows-setup-startup.ps1"))) {
             Copy-Item (Join-Path $env:TEMP "windows-setup-startup.ps1") $target -Force
         } else {
-            Get-RawRepositoryFile "Windows/home/$repositoryPath" $target
+            Copy-Item $sourceFile $target -Force
         }
+        
         if ($relativePath -eq ".config\whkdrc") {
             (Get-Content $target -Raw) -replace "(?im)^super\b", "win" |
                 Set-Content $target -Encoding utf8
-        } elseif ($relativePath -eq "komorebi.json") {
-            (Get-Content $target -Raw) -replace '(?m)^\s*"app_specific_configuration_path":[^\r\n]*\r?\n', "" |
-                Set-Content $target -Encoding utf8
         }
     }
-
-    Get-ChildItem -Path $sourceHome -Force | Copy-Item -Destination $BasePath -Recurse -Force
+    
+    foreach ($file in $symlinkFiles) {
+        $sourceFile = Join-Path $repoHomeDir $file
+        $targetPath = Join-Path $BasePath $file
+        
+        if ($file -eq "komorebi.json") {
+            (Get-Content $sourceFile -Raw) -replace '(?m)^\s*"app_specific_configuration_path":[^\r\n]*\r?\n', "" |
+                Set-Content $sourceFile -Encoding utf8
+        }
+        
+        New-Item -ItemType Directory -Force -Path (Split-Path $targetPath) | Out-Null
+        
+        if (Test-Path $targetPath) {
+            Remove-Item $targetPath -Force -ErrorAction SilentlyContinue
+        }
+        
+        if (-not $WhatIf) {
+            New-Item -ItemType SymbolicLink -Path $targetPath -Target $sourceFile -Force
+            Write-SetupLog "Created symlink: $targetPath -> $sourceFile"
+        }
+    }
 
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
     if (-not (Test-Path $startupScript -PathType Leaf)) {
