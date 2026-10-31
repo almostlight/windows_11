@@ -392,6 +392,61 @@ Invoke-Step "packages" {
     }
 }
 
+Invoke-Step "powertoys" {
+    $powerToysCli = Join-Path $env:LOCALAPPDATA "PowerToys\bin\PowerToys.Settings.CLI.exe"
+    $powerToysExe = Join-Path $env:LOCALAPPDATA "PowerToys\PowerToys.exe"
+
+    if (-not (Test-Path $powerToysCli)) {
+        Write-SetupLog "PowerToys CLI not found at $powerToysCli, skipping PowerToys configuration" "WARN"
+        return
+    }
+
+    $powerToysRunning = Get-Process -Name "PowerToys" -ErrorAction SilentlyContinue
+    if ($powerToysRunning) {
+        Write-SetupLog "Stopping PowerToys to configure modules..."
+        Stop-Process -Name "PowerToys" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+    }
+
+    Write-SetupLog "Configuring PowerToys modules..."
+
+    & $powerToysCli enable PowerLauncher
+    & $powerToysCli enable AutoHideCursor
+    & $powerToysCli enable PowerAccent
+    & $powerToysCli enable PowerPreview
+    & $powerToysCli enable RegistryPreview
+
+    & $powerToysCli disable FancyZones
+    & $powerToysCli disable Workspaces
+    & $powerToysCli disable AltWindowCycle
+
+    Write-SetupLog "Setting PowerLauncher hotkey to Alt+Space..."
+    $powerLauncherSettings = @{
+        properties = @{
+            open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
+        }
+    }
+    $settingsPath = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys Run\settings.json"
+    if (Test-Path $settingsPath) {
+        $currentSettings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        $currentSettings.properties.open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
+        $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding utf8
+    }
+    $settingsPath2 = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys.Run\settings.json"
+    if (Test-Path $settingsPath2) {
+        $currentSettings = Get-Content $settingsPath2 -Raw | ConvertFrom-Json
+        $currentSettings.hotkey = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32 }
+        $currentSettings.enabled = $true
+        $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath2 -Encoding utf8
+    }
+
+    Write-SetupLog "Restarting PowerToys..."
+    Start-Process $powerToysExe -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+
+    Write-SetupLog "PowerToys configuration complete"
+}
+
 Invoke-Step "fedora-wsl" {
     if ($installFedoraWSL) {
         Write-SetupLog "Installing Fedora on WSL"
