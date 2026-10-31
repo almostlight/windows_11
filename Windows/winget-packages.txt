@@ -6,15 +6,15 @@ AutoHotkey.AutoHotkey
 Bambulab.Bambustudio
 # ArduinoSA.IDE.stable
 Arm.GnuArmEmbeddedToolchain
-Autodesk.Fusion
+# Autodesk.Fusion
 Klocman.BulkCrapUninstaller
 Kitware.CMake
 # Comfy.ComfyUI-Desktop
 qarmin.czkawka.gui
 Discord.Discord
 Gyan.FFmpeg
-FilesCommunity.Files
-FxSound.FxSound
+# FilesCommunity.Files
+# FxSound.FxSound
 GIMP.GIMP
 Git.Git
 GitHub.cli
@@ -25,9 +25,9 @@ Oracle.JDK.26
 # Jellyfin.JellyfinMediaPlayer
 # KeePassXCTeam.KeePassXC
 LGUG2Z.komorebi
+LGUG2Z.whkd
 Microsoft.DotNet.DesktopRuntime.8
 Microsoft.DotNet.DesktopRuntime.9
-Microsoft.Edge
 Microsoft.Office
 Microsoft.OneDrive
 Microsoft.PowerShell
@@ -53,4 +53,3 @@ CharlesMilette.TranslucentTB
 VideoLAN.VLC
 vim.vim
 # wez.wezterm
-LGUG2Z.whkd
