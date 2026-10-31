@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/LGUG2Z/komorebi/v0.1.41/schema.bar.json",
-  "font_family": "FiraCode Nerd Font Mono",
+  "font_family": "Bai Jamjuree",
   "theme": {
     "palette": "Base16",
     "name": "Ashes",
@@ -54,7 +54,6 @@
     {
       "Time": {
         "enable": true,
-        "label_prefix": "Text",
         "format": {
           "Custom": "%H:%M"
         }
@@ -63,7 +62,6 @@
     {
       "Date": {
         "enable": true,
-        "label_prefix": "Text",
         "format": {
           "Custom": "%d.%m"
         }
@@ -71,8 +69,7 @@
     },
     {
       "Battery": {
-        "enable": true,
-        "label_prefix": "Text"
+        "enable": true
       }
     }
   ]

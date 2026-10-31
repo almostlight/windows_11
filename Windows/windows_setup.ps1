@@ -609,9 +609,12 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     if (-not (Test-Path $p)) {
         New-Item $p | Out-Null
     }
-    Set-ItemProperty -Path $p -Name "TaskbarAl" -Value 0
-    Set-ItemProperty -Path $p -Name "HideIcons" -Value 1 -Type DWord
+    Set-ItemProperty -Path $p -Name "TaskbarAl" -Value 0 -Type DWord
     Set-ItemProperty -Path $p -Name "TaskbarSi" -Value 0 -Type DWord
+
+    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value 0 -Type DWord
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "EnableSnapAssist" -Value 0 -Type DWord
+    Write-SetupLog "Configured taskbar settings and disabled window snapping (Aero Snap and Snap Assist)"
 
     $stuckRectsPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
     $stuckRects = Get-ItemProperty -Path $stuckRectsPath -Name "Settings" -ErrorAction Stop
@@ -721,6 +724,13 @@ Invoke-Step "startup script" {
         return
     }
     & $startupScript
+}
+
+Invoke-Step "restart-explorer" {
+    Get-Process -Name "explorer" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force }
+    Start-Process "explorer.exe"
+    Write-SetupLog "Restarted Explorer to apply all UI changes"
 }
 
     Write-SetupLog "Provisioning complete"
