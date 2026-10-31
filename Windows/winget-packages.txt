@@ -28,7 +28,7 @@ LGUG2Z.komorebi
 LGUG2Z.whkd
 Microsoft.DotNet.DesktopRuntime.8
 Microsoft.DotNet.DesktopRuntime.9
-Microsoft.Office
+# Microsoft.Office
 Microsoft.OneDrive
 Microsoft.PowerShell
 Microsoft.PowerToys
