@@ -6,9 +6,10 @@ param(
     [switch]$WhatIf
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $ScriptUrl = "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup.ps1"
 $PromptTimeoutSeconds = 5
+$HadErrors = $false
 
 if (-not ("WindowsSetup.ConsoleNative" -as [type])) {
     Add-Type @'
@@ -73,18 +74,23 @@ if (-not $WhatIf) {
     Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- Core paths ---
-$date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$BasePath = [Environment]::GetFolderPath("UserProfile")
-$Downloads = Join-Path $BasePath "Downloads"
-$ScriptsPath = Join-Path $BasePath "scripts"
-$LogPath = Join-Path $ScriptsPath "setup.log"
+# =========================
+# MAIN SCRIPT EXECUTION
+# Wrapped in try-catch to handle errors gracefully
+# =========================
+try {
+    # --- Core paths ---
+    $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $BasePath = [Environment]::GetFolderPath("UserProfile")
+    $Downloads = Join-Path $BasePath "Downloads"
+    $ScriptsPath = Join-Path $BasePath "scripts"
+    $LogPath = Join-Path $ScriptsPath "setup.log"
 
-New-Item -ItemType Directory -Force -Path $Downloads, $ScriptsPath | Out-Null
-Set-Content $LogPath "Provisioning started: $date"
+    New-Item -ItemType Directory -Force -Path $Downloads, $ScriptsPath | Out-Null
+    Set-Content $LogPath "Provisioning started: $date"
 
-# --- Logging ---
-function Write-SetupLog {
+    # --- Logging ---
+    function Write-SetupLog {
     param($Msg, $Type = "INFO")
     $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')][$Type] $Msg"
     Write-Output $line
@@ -164,9 +170,32 @@ function Invoke-Step($Name, $ScriptBlock) {
         & $ScriptBlock
     } catch {
         Write-SetupLog "FAILED: $Name - $_" "ERROR"
-        throw
+        $global:HadErrors = $true
     }
 }
+
+# =========================
+# ASK ALL QUESTIONS UPFRONT
+# =========================
+Write-SetupLog "Collecting user preferences..."
+
+$installAllRecommendedPackages = $false
+$response = Read-TimedChoice `
+    "Install all recommended packages? [y/N] (Choosing 'N' installs only strictly necessary packages)" `
+    "n"
+if ($response -eq "y") {
+    $installAllRecommendedPackages = $true
+} elseif ($response -and $response -ne "n") {
+    Write-SetupLog "Unrecognized package installation choice: '$response'. Defaulting to strictly necessary packages" "WARN"
+}
+
+$installFedoraWSL = $false
+$response = Read-TimedChoice "Install the latest Fedora on WSL? [y/N]" "n"
+if ($response -eq "y") {
+    $installFedoraWSL = $true
+}
+
+Write-SetupLog "User preferences collected. Starting provisioning..."
 
 # --- Download helper ---
 function Get-File($Url, $Out) {
@@ -344,23 +373,13 @@ function Install-SetupPackage($id) {
 
 Invoke-Step "packages" {
     $packageList = Join-Path $env:TEMP "WindowsSetup-winget-packages.txt"
-    $strictlyNecessaryPackages = @("LGUG2Z.komorebi", "LGUG2Z.whkd", "AutoHotkey.AutoHotkey")
+    $strictlyNecessaryPackages = @("LGUG2Z.komorebi", "LGUG2Z.whkd", "AutoHotkey.AutoHotkey", "Microsoft.PowerToys")
 
     Get-RawRepositoryFile "Windows/winget-packages.txt" $packageList
 
     $allRecommendedPackages = Get-Content $packageList |
         ForEach-Object { $_.Trim() } |
         Where-Object { $_ -and -not $_.StartsWith("#") }
-
-    $installAllRecommendedPackages = $false
-    $response = Read-TimedChoice `
-        "Install all recommended packages? [y/N] (Choosing 'N' installs only strictly necessary packages)" `
-        "n"
-    if ($response -eq "y") {
-        $installAllRecommendedPackages = $true
-    } elseif ($response -and $response -ne "n") {
-        Write-SetupLog "Unrecognized package installation choice: '$response'. Defaulting to strictly necessary packages" "WARN"
-    }
 
     $packagesToInstall = if ($installAllRecommendedPackages) {
         $allRecommendedPackages
@@ -370,6 +389,32 @@ Invoke-Step "packages" {
 
     foreach ($packageId in $packagesToInstall) {
         Install-SetupPackage $packageId
+    }
+}
+
+Invoke-Step "fedora-wsl" {
+    if ($installFedoraWSL) {
+        Write-SetupLog "Installing Fedora on WSL"
+
+        if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
+            Write-SetupLog "WSL is not installed. Please install WSL first." "WARN"
+            return
+        }
+
+        $distros = (wsl --list --quiet 2>$null) -join '' -replace '\x00', ''
+        if ($distros -match "Fedora") {
+            Write-SetupLog "Fedora is already installed on WSL"
+            return
+        }
+
+        Write-SetupLog "Downloading and installing Fedora via WSL..."
+        wsl --install -d Fedora
+        if ($LASTEXITCODE -ne 0) {
+            throw "Fedora WSL installation failed with exit code $LASTEXITCODE"
+        }
+        Write-SetupLog "Fedora installed on WSL successfully"
+    } else {
+        Write-SetupLog "Skipping Fedora WSL installation"
     }
 }
 
@@ -439,14 +484,17 @@ Invoke-Step "home-config-and-startup" {
         
         if ($relativePath -eq "scripts\windows-startup.ps1" -and
             (Test-Path (Join-Path $env:TEMP "windows-setup-startup.ps1"))) {
-            Copy-Item (Join-Path $env:TEMP "windows-setup-startup.ps1") $target -Force
+            Copy-Item (Join-Path $env:TEMP "windows-setup-startup.ps1") $target -Force -ErrorAction SilentlyContinue
         } else {
-            Copy-Item $sourceFile $target -Force
+            Copy-Item $sourceFile $target -Force -ErrorAction SilentlyContinue
         }
         
         if ($relativePath -eq ".config\whkdrc") {
-            (Get-Content $target -Raw) -replace "(?im)^super\b", "win" |
-                Set-Content $target -Encoding utf8
+            $content = Get-Content $target -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                $content -replace "(?im)^super\b", "win" |
+                    Set-Content $target -Encoding utf8 -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     
@@ -454,20 +502,32 @@ Invoke-Step "home-config-and-startup" {
         $sourceFile = Join-Path $repoHomeDir $file
         $targetPath = Join-Path $BasePath $file
         
-        if ($file -eq "komorebi.json") {
+        if ($file -eq "komorebi.json" -and (Test-Path $sourceFile)) {
             (Get-Content $sourceFile -Raw) -replace '(?m)^\s*"app_specific_configuration_path":[^\r\n]*\r?\n', "" |
-                Set-Content $sourceFile -Encoding utf8
+                Set-Content $sourceFile -Encoding utf8 -ErrorAction SilentlyContinue
         }
         
         New-Item -ItemType Directory -Force -Path (Split-Path $targetPath) | Out-Null
         
-        if (Test-Path $targetPath) {
-            Remove-Item $targetPath -Force -ErrorAction SilentlyContinue
-        }
-        
         if (-not $WhatIf) {
-            New-Item -ItemType SymbolicLink -Path $targetPath -Target $sourceFile -Force
-            Write-SetupLog "Created symlink: $targetPath -> $sourceFile"
+            if (Test-Path $targetPath) {
+                $item = Get-Item $targetPath -ErrorAction SilentlyContinue
+                if ($item -and $item.Attributes -match "ReparsePoint") {
+                    $existingTarget = $item.Target
+                    if ($existingTarget -eq $sourceFile) {
+                        Write-SetupLog "Symlink already exists and is correct: $targetPath -> $sourceFile"
+                        continue
+                    }
+                }
+                Remove-Item $targetPath -Force -ErrorAction SilentlyContinue
+            }
+            
+            if (Test-Path $sourceFile) {
+                New-Item -ItemType SymbolicLink -Path $targetPath -Target $sourceFile -Force -ErrorAction SilentlyContinue
+                Write-SetupLog "Created symlink: $targetPath -> $sourceFile"
+            } else {
+                Write-SetupLog "Source file not found, skipping symlink: $sourceFile" "WARN"
+            }
         }
     }
 
@@ -588,10 +648,15 @@ Invoke-Step "unpin-taskbar" {
 }
 
 Invoke-Step "keyboard" {
-    $lang = New-WinUserLanguageList en-US
-    $lang[0].InputMethodTips.Clear()
-    $lang[0].InputMethodTips.Add("0415:00000415")
-    Set-WinUserLanguageList $lang -Force
+    try {
+        $lang = New-WinUserLanguageList en-US
+        $lang[0].InputMethodTips.Clear()
+        $lang[0].InputMethodTips.Add("0415:00000415")
+        Set-WinUserLanguageList $lang -Force
+        Write-SetupLog "Keyboard layout configured successfully"
+    } catch {
+        Write-SetupLog "Failed to configure keyboard layout: $_" "WARN"
+    }
 }
 
 # =========================
@@ -612,7 +677,7 @@ Invoke-Step "debloat" {
         Get-AppxPackage -Name $a -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
     }
 
-    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell\" -Name "OneDrive" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell" -Name "OneDrive" -ErrorAction SilentlyContinue
 }
 
 Invoke-Step "edge-blocker" {
@@ -645,23 +710,30 @@ Invoke-Step "edge-blocker" {
 }
 
 # =========================
-# OPEN LOG AND CLEANUP
+# CLEANUP
 # =========================
-
-Invoke-Step "open log" {
-    Clear-Host
-    $openLog = Read-TimedChoice "Would you like to open the log file? (Y/n)" "y"
-    if ($openLog -eq "y") {
-        notepad $LogPath
-    }
-}
 
 Invoke-Step "startup script" {
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
     if (-not (Test-Path $startupScript -PathType Leaf)) {
-        throw "Startup script was not deployed: $startupScript"
+        Write-SetupLog "Startup script was not deployed: $startupScript" "ERROR"
+        $global:HadErrors = $true
+        return
     }
     & $startupScript
 }
 
-Write-SetupLog "Provisioning complete"
+    Write-SetupLog "Provisioning complete"
+} catch {
+    $global:HadErrors = $true
+    Write-SetupLog "ERROR: $_" "ERROR"
+}
+
+# Always open the log file and keep window open (unless in WhatIf mode)
+if (-not $WhatIf) {
+    Start-Sleep -Seconds 2
+    notepad $LogPath
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 0
+}
