@@ -9,6 +9,7 @@ $ProgramFiles = ${env:ProgramFiles}
 
 $komorebic = Join-Path $ProgramFiles "komorebi\bin\komorebic.exe"
 $autoHotkey = Join-Path $ProgramFiles "AutoHotkey\v2\AutoHotkey.exe"
+$powerToys = Join-Path $env:LOCALAPPDATA "PowerToys\PowerToys.exe"
 $processPriority = [Diagnostics.ProcessPriorityClass]::High
 
 if ($BarWatchdog) {
@@ -81,6 +82,18 @@ function Set-StartupProcessPriority {
 }
 
 Set-StartupProcessPriority @("komorebi", "whkd")
+
+$powerToysProcesses = Get-Process -Name "PowerToys" -ErrorAction SilentlyContinue
+if (-not $powerToysProcesses) {
+    if (-not (Test-Path $powerToys -PathType Leaf)) {
+        Write-Error "PowerToys executable was not found: $powerToys"
+    } else {
+        Start-Process $powerToys `
+            -WorkingDirectory (Split-Path $powerToys) `
+            -WindowStyle Hidden `
+            -ErrorAction Stop
+    }
+}
 
 $autoHotkeyProcesses = Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue
 if (-not $autoHotkeyProcesses) {
