@@ -95,14 +95,15 @@ if (-not $powerToysProcesses) {
     }
 }
 
-$autoHotkeyProcesses = Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue
-if (-not $autoHotkeyProcesses) {
+$masterScript = Join-Path $BasePath "scripts\autohotkey\master.ahk"
+$masterScriptRunning = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%'" |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like "*$masterScript*" }
+if (-not $masterScriptRunning) {
     Start-Process $autoHotkey `
-        -ArgumentList (Join-Path $BasePath "scripts\autohotkey\master.ahk") `
-        -WorkingDirectory (Join-Path $BasePath "scripts\autohotkey") `
+        -ArgumentList $masterScript `
+        -WorkingDirectory (Split-Path $masterScript) `
         -WindowStyle Hidden
     Start-Sleep -Milliseconds 500
-    $autoHotkeyProcesses = Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue
 }
 
 Set-StartupProcessPriority "AutoHotkey*"

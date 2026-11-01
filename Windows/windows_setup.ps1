@@ -755,6 +755,18 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     }
     Set-ItemProperty -Path $p -Name "TaskbarAl" -Value 0 -Type DWord
     Set-ItemProperty -Path $p -Name "TaskbarSi" -Value 0 -Type DWord
+    $taskbarDeveloperSettingsPath = Join-Path $p "TaskbarDeveloperSettings"
+    New-Item -Path $taskbarDeveloperSettingsPath -Force | Out-Null
+    Set-ItemProperty -Path $taskbarDeveloperSettingsPath -Name "TaskbarEndTask" -Value 1 -Type DWord
+
+    $legacyContextMenuPath = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+    New-Item -Path $legacyContextMenuPath -Force | Out-Null
+    New-ItemProperty `
+        -Path $legacyContextMenuPath `
+        -Name "(default)" `
+        -Value "" `
+        -PropertyType String `
+        -Force | Out-Null
 
     Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value 0 -Type DWord
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "EnableSnapAssist" -Value 0 -Type DWord
@@ -764,7 +776,7 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     }
     Set-ItemProperty -Path $accentPath -Name "AccentColorMenu" -Value 0xFF24AEDF -Type DWord
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "ColorPrevalence" -Value 0 -Type DWord
-    Write-SetupLog "Configured taskbar settings and disabled window snapping (Aero Snap and Snap Assist)"
+    Write-SetupLog "Configured taskbar settings, enabled End Task, and restored the legacy context menu"
 
     $stuckRectsPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
     $stuckRects = Get-ItemProperty -Path $stuckRectsPath -Name "Settings" -ErrorAction Stop
