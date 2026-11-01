@@ -90,6 +90,7 @@ irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/vm_s
 -  **Autologon configuration** - Registry keys for automatic login
 -  **Quick Access shortcuts** - Add Startup folder
 -  **Scheduled-task debloat** - Disable selected Windows telemetry and consumer-experience tasks (tasks are kept and can be re-enabled)
+-  **Komorebi themes** - Install full Komorebi and komorebi-bar configs with the custom dark blue/gold theme
 
 ##  Security Considerations
 

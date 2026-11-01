@@ -2,8 +2,25 @@
   "$schema": "https://raw.githubusercontent.com/LGUG2Z/komorebi/v0.1.41/schema.bar.json",
   "font_family": "Bai Jamjuree",
   "theme": {
-    "palette": "Base16",
-    "name": "Ashes",
+    "palette": "Custom",
+    "colours": {
+      "base_00": "#100C04",
+      "base_01": "#111F3C",
+      "base_02": "#657694",
+      "base_03": "#8D8F8F",
+      "base_04": "#657694",
+      "base_05": "#F9F9F9",
+      "base_06": "#FFCE5C",
+      "base_07": "#F9F9F9",
+      "base_08": "#8D8F8F",
+      "base_09": "#FFCE5C",
+      "base_0a": "#DFAE24",
+      "base_0b": "#DFAE24",
+      "base_0c": "#657694",
+      "base_0d": "#DFAE24",
+      "base_0e": "#FFCE5C",
+      "base_0f": "#100C04"
+    },
     "accent": "Base0D"
   },
   "left_widgets": [

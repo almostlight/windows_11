@@ -174,6 +174,15 @@ function Invoke-Step($Name, $ScriptBlock) {
     }
 }
 
+function Restart-ExplorerShell {
+    Get-Process -Name "explorer" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction Stop }
+    Start-Process `
+        -FilePath (Join-Path $env:WINDIR "explorer.exe") `
+        -WindowStyle Hidden `
+        -ErrorAction Stop | Out-Null
+}
+
 # =========================
 # ASK ALL QUESTIONS UPFRONT
 # =========================
@@ -528,19 +537,25 @@ Invoke-Step "home-config-and-startup" {
     $repoHomeDir = Join-Path $repoDir "Windows\home"
     
     $configFiles = @{
+        "komorebi.json" = "komorebi.json"
+        "komorebi.bar.json" = "komorebi.bar.json"
         ".config\whkdrc" = ".config\whkdrc"
         "scripts\autohotkey\loop_accept.ahk" = "scripts\autohotkey\loop_accept.ahk"
         "scripts\autohotkey\master.ahk" = "scripts\autohotkey\master.ahk"
         "scripts\windows-startup.ps1" = "scripts\windows-startup.ps1"
     }
     
-    $symlinkFiles = @("komorebi.bar.json", "komorebi.json")
-    
     foreach ($relativePath in $configFiles.Keys) {
         $sourceFile = Join-Path $repoHomeDir $relativePath
         $target = Join-Path $BasePath $configFiles[$relativePath]
         
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+        if (Test-Path $target) {
+            $item = Get-Item $target -Force -ErrorAction Stop
+            if ($item.Attributes -match "ReparsePoint") {
+                Remove-Item $target -Force -ErrorAction Stop
+            }
+        }
         
         if ($relativePath -eq "scripts\windows-startup.ps1" -and
             (Test-Path (Join-Path $env:TEMP "windows-setup-startup.ps1"))) {
@@ -558,39 +573,6 @@ Invoke-Step "home-config-and-startup" {
         }
     }
     
-    foreach ($file in $symlinkFiles) {
-        $sourceFile = Join-Path $repoHomeDir $file
-        $targetPath = Join-Path $BasePath $file
-        
-        if ($file -eq "komorebi.json" -and (Test-Path $sourceFile)) {
-            (Get-Content $sourceFile -Raw) -replace '(?m)^\s*"app_specific_configuration_path":[^\r\n]*\r?\n', "" |
-                Set-Content $sourceFile -Encoding utf8 -ErrorAction SilentlyContinue
-        }
-        
-        New-Item -ItemType Directory -Force -Path (Split-Path $targetPath) | Out-Null
-        
-        if (-not $WhatIf) {
-            if (Test-Path $targetPath) {
-                $item = Get-Item $targetPath -ErrorAction SilentlyContinue
-                if ($item -and $item.Attributes -match "ReparsePoint") {
-                    $existingTarget = $item.Target
-                    if ($existingTarget -eq $sourceFile) {
-                        Write-SetupLog "Symlink already exists and is correct: $targetPath -> $sourceFile"
-                        continue
-                    }
-                }
-                Remove-Item $targetPath -Force -ErrorAction SilentlyContinue
-            }
-            
-            if (Test-Path $sourceFile) {
-                New-Item -ItemType SymbolicLink -Path $targetPath -Target $sourceFile -Force -ErrorAction SilentlyContinue
-                Write-SetupLog "Created symlink: $targetPath -> $sourceFile"
-            } else {
-                Write-SetupLog "Source file not found, skipping symlink: $sourceFile" "WARN"
-            }
-        }
-    }
-
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
     if (-not (Test-Path $startupScript -PathType Leaf)) {
         throw "Startup script was not deployed: $startupScript"
@@ -664,6 +646,7 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     }
     Set-ItemProperty -Path $p -Name "AppsUseLightTheme" -Value 0
     Set-ItemProperty -Path $p -Name "SystemUsesLightTheme" -Value 0
+    Set-ItemProperty -Path $p -Name "EnableTransparency" -Value 0 -Type DWord
 
     $p = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
     if (-not (Test-Path $p)) {
@@ -674,6 +657,12 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
 
     Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WindowArrangementActive" -Value 0 -Type DWord
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "EnableSnapAssist" -Value 0 -Type DWord
+    $accentPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"
+    if (-not (Test-Path $accentPath)) {
+        New-Item $accentPath | Out-Null
+    }
+    Set-ItemProperty -Path $accentPath -Name "AccentColorMenu" -Value 0xFF24AEDF -Type DWord
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "ColorPrevalence" -Value 0 -Type DWord
     Write-SetupLog "Configured taskbar settings and disabled window snapping (Aero Snap and Snap Assist)"
 
     $stuckRectsPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
@@ -699,9 +688,7 @@ Invoke-Step "unpin-taskbar" {
 
     Remove-ItemProperty -Path $taskbandPath -Name @("Favorites", "FavoritesResolve") -ErrorAction SilentlyContinue;
 
-    Get-Process -Name "explorer" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force }
-    Start-Process "explorer.exe"
+    Restart-ExplorerShell
 
     if ($hadPins) {
         Write-SetupLog "Removed all pinned taskbar items and restarted Explorer"
@@ -826,10 +813,8 @@ Invoke-Step "startup script" {
 }
 
 Invoke-Step "restart-explorer" {
-    Get-Process -Name "explorer" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force }
-    Start-Process "explorer.exe"
-    Write-SetupLog "Restarted Explorer to apply all UI changes"
+    Restart-ExplorerShell
+    Write-SetupLog "Restarted Explorer shell without opening an Explorer window"
 }
 
     Write-SetupLog "Provisioning complete"
