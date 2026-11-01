@@ -99,11 +99,24 @@ $masterScript = Join-Path $BasePath "scripts\autohotkey\master.ahk"
 $masterScriptRunning = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%'" |
     Where-Object { $_.CommandLine -and $_.CommandLine -like "*$masterScript*" }
 if (-not $masterScriptRunning) {
+    if (-not (Test-Path $autoHotkey -PathType Leaf)) {
+        throw "AutoHotkey executable was not found: $autoHotkey"
+    }
+    if (-not (Test-Path $masterScript -PathType Leaf)) {
+        throw "AutoHotkey script was not found: $masterScript"
+    }
+
     Start-Process $autoHotkey `
         -ArgumentList $masterScript `
         -WorkingDirectory (Split-Path $masterScript) `
-        -WindowStyle Hidden
+        -WindowStyle Hidden `
+        -ErrorAction Stop
     Start-Sleep -Milliseconds 500
+    $masterScriptRunning = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%'" |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$masterScript*" }
+    if (-not $masterScriptRunning) {
+        throw "AutoHotkey did not start from $masterScript"
+    }
 }
 
 Set-StartupProcessPriority "AutoHotkey*"
