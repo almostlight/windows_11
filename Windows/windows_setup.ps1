@@ -186,8 +186,34 @@ function Restart-ExplorerShell {
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction Stop }
     Start-Process `
         -FilePath (Join-Path $env:WINDIR "explorer.exe") `
+        -ArgumentList "/factory" `
         -WindowStyle Hidden `
         -ErrorAction Stop | Out-Null
+}
+
+function Prompt-ForReboot {
+    Add-Type -AssemblyName System.Windows.Forms
+
+    $message = if ($HadErrors) {
+        "Windows setup finished with errors. Check the setup log before rebooting.`n`nReboot now?"
+    } else {
+        "Windows setup completed successfully.`n`nReboot now to apply all changes?"
+    }
+
+    $choice = [System.Windows.Forms.MessageBox]::Show(
+        $message,
+        "Windows Setup",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question,
+        [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+    )
+
+    if ($choice -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-SetupLog "User chose to reboot now"
+        Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 0" -WindowStyle Hidden
+    } else {
+        Write-SetupLog "User chose to reboot later"
+    }
 }
 
 # =========================
@@ -236,12 +262,14 @@ function Get-RawRepositoryFile($RelativePath, $Out) {
 }
 
 function Set-DefaultWallpaper($RepositoryPath) {
-    $sourceWallpaper = Join-Path $RepositoryPath "default.png"
+    $sourceWallpaper = Join-Path $RepositoryPath "home\.config\default.png"
     if (-not (Test-Path $sourceWallpaper -PathType Leaf)) {
         throw "Wallpaper file was not found: $sourceWallpaper"
     }
 
-    $targetWallpaper = Join-Path $BasePath "default.png"
+    $configDir = Join-Path $BasePath ".config"
+    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    $targetWallpaper = Join-Path $configDir "default.png"
     Copy-Item $sourceWallpaper $targetWallpaper -Force -ErrorAction Stop
     if (-not [WindowsSetup.ConsoleNative]::SystemParametersInfo(20, 0, $targetWallpaper, 3)) {
         $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
@@ -249,6 +277,37 @@ function Set-DefaultWallpaper($RepositoryPath) {
     }
 
     Write-SetupLog "Set desktop wallpaper to $targetWallpaper"
+
+    $sourceLockScreen = Join-Path $RepositoryPath "home\.config\default_lock.png"
+    if (-not (Test-Path $sourceLockScreen -PathType Leaf)) {
+        throw "Lock screen image was not found: $sourceLockScreen"
+    }
+
+    $targetLockScreen = Join-Path $configDir "default_lock.png"
+    Copy-Item $sourceLockScreen $targetLockScreen -Force -ErrorAction Stop
+
+    $personalizationPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP"
+    New-Item -Path $personalizationPath -Force | Out-Null
+    New-ItemProperty `
+        -Path $personalizationPath `
+        -Name "LockScreenImagePath" `
+        -Value $targetLockScreen `
+        -PropertyType String `
+        -Force | Out-Null
+    New-ItemProperty `
+        -Path $personalizationPath `
+        -Name "LockScreenImageUrl" `
+        -Value $targetLockScreen `
+        -PropertyType String `
+        -Force | Out-Null
+    New-ItemProperty `
+        -Path $personalizationPath `
+        -Name "LockScreenImageStatus" `
+        -Value 1 `
+        -PropertyType DWord `
+        -Force | Out-Null
+
+    Write-SetupLog "Set lock screen image to $targetLockScreen"
 }
 
 function Install-FontFiles($FontFiles) {
@@ -867,6 +926,11 @@ Invoke-Step "restart-explorer" {
 
 # Always open the log file and keep window open (unless in WhatIf mode)
 if (-not $WhatIf) {
+    try {
+        Prompt-ForReboot
+    } catch {
+        Write-SetupLog "Could not display the reboot prompt: $_" "ERROR"
+    }
     Start-Sleep -Seconds 2
     notepad $LogPath
     Write-Host "Press any key to exit..."
