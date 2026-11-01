@@ -8,7 +8,12 @@ CapsLock::Send "{Esc}"
 +CapsLock::SetCapsLockState !GetKeyState("CapsLock", "T")
 
 #Enter::Run "wt.exe"
-#+Enter::Run "pwsh.exe"
+#+Enter::{
+    pwsh := EnvGet("ProgramFiles") "\PowerShell\7\pwsh.exe"
+    if (!FileExist(pwsh))
+        pwsh := "pwsh.exe"
+    Run pwsh
+}
 ; #e::Run "files:"
 #e::Run "explorer.exe"
 #v::Send "#v"

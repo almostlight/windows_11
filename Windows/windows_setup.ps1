@@ -464,7 +464,13 @@ function Install-SetupPackage($id) {
 
 Invoke-Step "packages" {
     $packageList = Join-Path $env:TEMP "WindowsSetup-winget-packages.txt"
-    $strictlyNecessaryPackages = @("LGUG2Z.komorebi", "LGUG2Z.whkd", "AutoHotkey.AutoHotkey", "Microsoft.PowerToys")
+    $strictlyNecessaryPackages = @(
+        "LGUG2Z.komorebi",
+        "LGUG2Z.whkd",
+        "AutoHotkey.AutoHotkey",
+        "Microsoft.PowerToys",
+        "Microsoft.PowerShell"
+    )
 
     Get-RawRepositoryFile "Windows/winget-packages.txt" $packageList
 

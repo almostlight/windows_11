@@ -18,7 +18,7 @@ win + shift + h          : komorebic move left
 win + shift + j          : komorebic move down
 win + shift + k          : komorebic move up
 win + shift + l          : komorebic move right
-win + shift + return     : komorebic promote
+#win + shift + return     : komorebic promote
 win + shift + tab        : komorebic cycle-focus previous
 win + tab                : komorebic cycle-focus next
 
@@ -65,4 +65,3 @@ win + shift + 6          : komorebic move-to-workspace 5
 win + shift + 7          : komorebic move-to-workspace 6
 win + shift + 8          : komorebic move-to-workspace 7
 win + shift + 9          : komorebic move-to-workspace 8
-
