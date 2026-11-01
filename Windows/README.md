@@ -89,6 +89,7 @@ irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/vm_s
 -  **Windows Defender exclusions** - Exclude automation directory
 -  **Autologon configuration** - Registry keys for automatic login
 -  **Quick Access shortcuts** - Add Startup folder
+-  **Scheduled-task debloat** - Disable selected Windows telemetry and consumer-experience tasks (tasks are kept and can be re-enabled)
 
 ##  Security Considerations
 

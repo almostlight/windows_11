@@ -410,7 +410,8 @@ Invoke-Step "powertoys" {
 
     Write-SetupLog "Configuring PowerToys modules..."
 
-    & $powerToysCli enable PowerLauncher
+    & $powerToysCli disable PowerLauncher
+    & $powerToysCli enable CmdPal
     & $powerToysCli enable AutoHideCursor
     & $powerToysCli enable PowerAccent
     & $powerToysCli enable PowerPreview
@@ -420,25 +421,29 @@ Invoke-Step "powertoys" {
     & $powerToysCli disable Workspaces
     & $powerToysCli disable AltWindowCycle
 
-    Write-SetupLog "Setting PowerLauncher hotkey to Alt+Space..."
-    $powerLauncherSettings = @{
-        properties = @{
-            open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
-        }
+    Write-SetupLog "Setting Command Palette hotkey to Alt+Space..."
+    $cmdPalSettingsPath = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\CmdPal\settings.json"
+    if (-not (Test-Path $cmdPalSettingsPath -PathType Leaf)) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $cmdPalSettingsPath) | Out-Null
+        $currentSettings = [pscustomobject]@{}
+    } else {
+        $currentSettings = Get-Content $cmdPalSettingsPath -Raw | ConvertFrom-Json
     }
-    $settingsPath = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys Run\settings.json"
-    if (Test-Path $settingsPath) {
-        $currentSettings = Get-Content $settingsPath -Raw | ConvertFrom-Json
-        $currentSettings.properties.open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
-        $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding utf8
+
+    $cmdPalHotkey = @{
+        win = $false
+        ctrl = $false
+        alt = $true
+        shift = $false
+        code = 32
+        key = ""
     }
-    $settingsPath2 = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys.Run\settings.json"
-    if (Test-Path $settingsPath2) {
-        $currentSettings = Get-Content $settingsPath2 -Raw | ConvertFrom-Json
-        $currentSettings.hotkey = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32 }
-        $currentSettings.enabled = $true
-        $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath2 -Encoding utf8
+    if ($currentSettings.PSObject.Properties.Name -contains "hotkey") {
+        $currentSettings.hotkey = $cmdPalHotkey
+    } else {
+        $currentSettings | Add-Member -NotePropertyName "hotkey" -NotePropertyValue $cmdPalHotkey
     }
+    $currentSettings | ConvertTo-Json -Depth 20 | Set-Content $cmdPalSettingsPath -Encoding utf8
 
     Write-SetupLog "Restarting PowerToys..."
     Start-Process $powerToysExe -ErrorAction SilentlyContinue
@@ -738,7 +743,46 @@ Invoke-Step "debloat" {
     Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\Shell" -Name "OneDrive" -ErrorAction SilentlyContinue
 }
 
+Invoke-Step "scheduled-task-debloat" {
+    $tasksToDisable = @(
+        @{ Path = "\Microsoft\Windows\Application Experience\"; Name = "Microsoft Compatibility Appraiser" }
+        @{ Path = "\Microsoft\Windows\Application Experience\"; Name = "ProgramDataUpdater" }
+        @{ Path = "\Microsoft\Windows\Customer Experience Improvement Program\"; Name = "Consolidator" }
+        @{ Path = "\Microsoft\Windows\Customer Experience Improvement Program\"; Name = "KernelCeipTask" }
+        @{ Path = "\Microsoft\Windows\Customer Experience Improvement Program\"; Name = "UsbCeip" }
+        @{ Path = "\Microsoft\Windows\Feedback\Siuf\"; Name = "DmClient" }
+        @{ Path = "\Microsoft\Windows\Feedback\Siuf\"; Name = "DmClientOnScenarioDownload" }
+    )
+
+    foreach ($taskDefinition in $tasksToDisable) {
+        $task = Get-ScheduledTask `
+            -TaskPath $taskDefinition.Path `
+            -TaskName $taskDefinition.Name `
+            -ErrorAction SilentlyContinue
+        if (-not $task) {
+            Write-SetupLog "Scheduled task not present, skipping: $($taskDefinition.Path)$($taskDefinition.Name)"
+            continue
+        }
+
+        if ($task.State -eq "Disabled") {
+            Write-SetupLog "Scheduled task already disabled: $($taskDefinition.Path)$($taskDefinition.Name)"
+            continue
+        }
+
+        Disable-ScheduledTask `
+            -TaskPath $taskDefinition.Path `
+            -TaskName $taskDefinition.Name `
+            -ErrorAction Stop | Out-Null
+        Write-SetupLog "Disabled scheduled task: $($taskDefinition.Path)$($taskDefinition.Name)"
+    }
+}
+
 Invoke-Step "edge-blocker" {
+    if (-not $installAllRecommendedPackages) {
+        Write-SetupLog "Skipping Edge Blocker because all recommended packages were not selected"
+        return
+    }
+
     $edgeUrl = "https://securedl.chip-downloads.de/downloads/41092168/EdgeBlock2.0.zip?cdr=4&cid=88734083&platform=chip&1779964617-1779972117-46994b-B-30a845019b172eaee80a888a40bb5b9f"
     $out = Join-Path $Downloads "EdgeBlocker.zip"
     $dir = Join-Path $Downloads "EdgeBlocker"
