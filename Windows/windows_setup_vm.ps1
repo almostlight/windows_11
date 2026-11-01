@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ScriptUrl = "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/vm_setup.ps1"
+$ScriptUrl = "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup_vm.ps1"
 
 # --- Self-elevation ---
 if (-not ([Security.Principal.WindowsPrincipal] `

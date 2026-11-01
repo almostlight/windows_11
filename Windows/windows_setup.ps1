@@ -650,7 +650,7 @@ Invoke-Step "home-config-and-startup" {
         }
     }
 
-    Set-DefaultWallpaper $repoDir
+    Set-DefaultWallpaper (Join-Path $repoDir "Windows")
     
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
     if (-not (Test-Path $startupScript -PathType Leaf)) {

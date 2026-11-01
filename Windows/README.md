@@ -1,9 +1,8 @@
 # Windows Setup Scripts
 
-[windows_setup.ps1](Windows/windows_setup.ps1) is a PowerShell script for general Windows system setup, software installation, and configuration.
-[vm_setup.ps1](Windows/vm_setup.ps1) is a separate script for VM-only installation, including VirtIO, Looking Glass, VDD, and WinFsp.
-[winget-packages.txt](Windows/winget-packages.txt) contains the package IDs installed by [windows_setup.ps1](Windows/windows_setup.ps1). Lines beginning with `#` are disabled.
-[npp_powershell_installer.ps1](Windows/npp_powershell_installer.ps1) is a helper script to set up PowerShell syntax support in Notepad++. It is downloaded and called by [windows_setup.ps1](Windows/windows_setup.ps1).
+[windows_setup.ps1](windows_setup.ps1) is a PowerShell script for general Windows system setup, software installation, and configuration.
+[windows_setup_vm.ps1](windows_setup_vm.ps1) is a separate script for VM-only installation, including VirtIO, Looking Glass, VDD, and WinFsp.
+[winget-packages.txt](winget-packages.txt) contains the package IDs installed by [windows_setup.ps1](windows_setup.ps1). Lines beginning with `#` are disabled.
 
 ##  Quick Start
 
@@ -44,7 +43,7 @@ notepad windows_setup.ps1
 For a VM with GPU passthrough, run the independent VM-specific script separately:
 
 ```powershell
-irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/vm_setup.ps1 | iex
+irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup_vm.ps1 | iex
 ```
 
 ##  What It Does
@@ -72,7 +71,7 @@ irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/vm_s
 - **Autologon** - Automatic login configuration (64-bit and 32-bit)
 
 ### Virtualization & Remote Gaming
-- Installed by [vm_setup.ps1](Windows/vm_setup.ps1), not by the general setup script:
+- Installed by [windows_setup_vm.ps1](windows_setup_vm.ps1), not by the general setup script:
 - **Display Driver Uninstaller (DDU)** - Clean GPU driver removal
 - **Looking Glass** - Low-latency KVM frame relay
 - **Virtual Display Driver** - Virtual monitor creation
