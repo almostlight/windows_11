@@ -27,12 +27,38 @@ if ($BarWatchdog) {
             return
         }
 
-        while (Get-Process -Name "komorebi" -ErrorAction SilentlyContinue) {
-            if (-not (Get-Process -Name "komorebi-bar" -ErrorAction SilentlyContinue)) {
-                Start-Process $bar `
-                    -WorkingDirectory $BasePath `
-                    -WindowStyle Hidden
+        while ($true) {
+            if (-not (Get-Process -Name "komorebi" -ErrorAction SilentlyContinue)) {
+                try {
+                    Start-Process $komorebic `
+                        -ArgumentList @("start", "--whkd", "--bar") `
+                        -WorkingDirectory $BasePath `
+                        -WindowStyle Hidden `
+                        -ErrorAction Stop
+                } catch {
+                    Write-Error "Could not start komorebi: $($_.Exception.Message)"
+                }
             }
+
+            if (-not (Get-Process -Name "komorebi-bar" -ErrorAction SilentlyContinue)) {
+                try {
+                    Start-Process $bar `
+                        -WorkingDirectory $BasePath `
+                        -WindowStyle Hidden `
+                        -ErrorAction Stop
+                } catch {
+                    Write-Error "Could not start komorebi-bar: $($_.Exception.Message)"
+                }
+            }
+
+            foreach ($process in (Get-Process -Name @("komorebi", "whkd") -ErrorAction SilentlyContinue)) {
+                try {
+                    $process.PriorityClass = $processPriority
+                } catch {
+                    Write-Error "Could not set priority for $($process.ProcessName): $($_.Exception.Message)"
+                }
+            }
+
             Start-Sleep -Seconds 2
         }
     } finally {
@@ -53,21 +79,6 @@ function Set-StartupProcessPriority {
         $process.PriorityClass = $processPriority
     }
 }
-
-$processes = Get-Process -Name "komorebi" -ErrorAction SilentlyContinue
-if (-not $processes) {
-    Start-Process $komorebic `
-        -ArgumentList @("start", "--whkd", "--bar") `
-        -WorkingDirectory $BasePath `
-        -WindowStyle Hidden
-    Start-Sleep -Seconds 2
-}
-
-$powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-Start-Process $powershell `
-    -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath, "-BarWatchdog") `
-    -WorkingDirectory $BasePath `
-    -WindowStyle Hidden
 
 Set-StartupProcessPriority @("komorebi", "whkd")
 

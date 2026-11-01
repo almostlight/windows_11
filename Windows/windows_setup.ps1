@@ -26,6 +26,13 @@ namespace WindowsSetup {
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool SetConsoleMode(IntPtr handle, uint mode);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SystemParametersInfo(
+            uint action,
+            uint parameter,
+            string value,
+            uint winIni);
     }
 }
 '@
@@ -228,6 +235,22 @@ function Get-RawRepositoryFile($RelativePath, $Out) {
         $Out
 }
 
+function Set-DefaultWallpaper($RepositoryPath) {
+    $sourceWallpaper = Join-Path $RepositoryPath "default.png"
+    if (-not (Test-Path $sourceWallpaper -PathType Leaf)) {
+        throw "Wallpaper file was not found: $sourceWallpaper"
+    }
+
+    $targetWallpaper = Join-Path $BasePath "default.png"
+    Copy-Item $sourceWallpaper $targetWallpaper -Force -ErrorAction Stop
+    if (-not [WindowsSetup.ConsoleNative]::SystemParametersInfo(20, 0, $targetWallpaper, 3)) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "Could not set wallpaper. Windows error code: $errorCode"
+    }
+
+    Write-SetupLog "Set desktop wallpaper to $targetWallpaper"
+}
+
 function Install-FontFiles($FontFiles) {
     $fontsPath = Join-Path $env:WINDIR "Fonts"
     $fontRegistryPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
@@ -419,8 +442,7 @@ Invoke-Step "powertoys" {
 
     Write-SetupLog "Configuring PowerToys modules..."
 
-    & $powerToysCli disable PowerLauncher
-    & $powerToysCli enable CmdPal
+    & $powerToysCli enable PowerLauncher
     & $powerToysCli enable AutoHideCursor
     & $powerToysCli enable PowerAccent
     & $powerToysCli enable PowerPreview
@@ -430,29 +452,25 @@ Invoke-Step "powertoys" {
     & $powerToysCli disable Workspaces
     & $powerToysCli disable AltWindowCycle
 
-    Write-SetupLog "Setting Command Palette hotkey to Alt+Space..."
-    $cmdPalSettingsPath = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\CmdPal\settings.json"
-    if (-not (Test-Path $cmdPalSettingsPath -PathType Leaf)) {
-        New-Item -ItemType Directory -Force -Path (Split-Path $cmdPalSettingsPath) | Out-Null
-        $currentSettings = [pscustomobject]@{}
-    } else {
-        $currentSettings = Get-Content $cmdPalSettingsPath -Raw | ConvertFrom-Json
+    Write-SetupLog "Setting PowerLauncher hotkey to Alt+Space..."
+    $powerLauncherSettings = @{
+        properties = @{
+            open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
+        }
     }
-
-    $cmdPalHotkey = @{
-        win = $false
-        ctrl = $false
-        alt = $true
-        shift = $false
-        code = 32
-        key = ""
+    $settingsPath = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys Run\settings.json"
+    if (Test-Path $settingsPath) {
+        $currentSettings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        $currentSettings.properties.open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
+        $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding utf8
     }
-    if ($currentSettings.PSObject.Properties.Name -contains "hotkey") {
-        $currentSettings.hotkey = $cmdPalHotkey
-    } else {
-        $currentSettings | Add-Member -NotePropertyName "hotkey" -NotePropertyValue $cmdPalHotkey
+    $settingsPath2 = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys.Run\settings.json"
+    if (Test-Path $settingsPath2) {
+        $currentSettings = Get-Content $settingsPath2 -Raw | ConvertFrom-Json
+        $currentSettings.hotkey = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32 }
+        $currentSettings.enabled = $true
+        $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath2 -Encoding utf8
     }
-    $currentSettings | ConvertTo-Json -Depth 20 | Set-Content $cmdPalSettingsPath -Encoding utf8
 
     Write-SetupLog "Restarting PowerToys..."
     Start-Process $powerToysExe -ErrorAction SilentlyContinue
@@ -572,6 +590,8 @@ Invoke-Step "home-config-and-startup" {
             }
         }
     }
+
+    Set-DefaultWallpaper $repoDir
     
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
     if (-not (Test-Path $startupScript -PathType Leaf)) {
@@ -612,6 +632,28 @@ Invoke-Step "home-config-and-startup" {
         -Settings $taskSettings `
         -Force | Out-Null
     Write-SetupLog "Configured scheduled startup task"
+
+    $watchdogTaskName = "Komorebi Process Watchdog"
+    $watchdogAction = New-ScheduledTaskAction `
+        -Execute $powershellPath `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startupScript`" -BarWatchdog"
+    $watchdogTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+    $watchdogSettings = New-ScheduledTaskSettingsSet `
+        -RestartCount 999 `
+        -RestartInterval (New-TimeSpan -Minutes 1) `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) `
+        -StartWhenAvailable `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries
+    Register-ScheduledTask `
+        -TaskName $watchdogTaskName `
+        -Action $watchdogAction `
+        -Trigger $watchdogTrigger `
+        -Principal $taskPrincipal `
+        -Settings $watchdogSettings `
+        -Force | Out-Null
+    Start-ScheduledTask -TaskName $watchdogTaskName
+    Write-SetupLog "Configured Komorebi process watchdog task"
 
     $localStartupPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
     $configDir = Join-Path $BasePath ".config"
