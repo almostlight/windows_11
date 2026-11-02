@@ -839,7 +839,7 @@ Invoke-Step "debloat" {
         "Microsoft.ZuneVideo","Microsoft.BingNews","Microsoft.BingWeather","Microsoft.GetHelp",
         "Microsoft.Getstarted","Microsoft.MicrosoftOfficeHub","Microsoft.People",
         "Microsoft.PowerAutomateDesktop","Microsoft.Todos","Microsoft.WindowsFeedbackHub",
-        "MicrosoftTeams","Microsoft.SkypeApp","Microsoft.YourPhone"
+        "MicrosoftTeams","Microsoft.SkypeApp"
     )
 
     foreach ($a in $apps) {
