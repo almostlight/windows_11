@@ -14,6 +14,10 @@ $processPriority = [Diagnostics.ProcessPriorityClass]::High
 
 if ($BarWatchdog) {
     $bar = Join-Path $ProgramFiles "komorebi\bin\komorebi-bar.exe"
+    $barConfigs = @(
+        (Join-Path $BasePath "komorebi.bar.json"),
+        (Join-Path $BasePath "komorebi.bar.1.json")
+    )
     $mutex = New-Object Threading.Mutex($false, "WindowsSetup.KomorebiBarWatchdog")
     $ownsMutex = $false
 
@@ -32,7 +36,7 @@ if ($BarWatchdog) {
             if (-not (Get-Process -Name "komorebi" -ErrorAction SilentlyContinue)) {
                 try {
                     Start-Process $komorebic `
-                        -ArgumentList @("start", "--whkd", "--bar") `
+                        -ArgumentList @("start", "--whkd") `
                         -WorkingDirectory $BasePath `
                         -WindowStyle Hidden `
                         -ErrorAction Stop
@@ -41,14 +45,24 @@ if ($BarWatchdog) {
                 }
             }
 
-            if (-not (Get-Process -Name "komorebi-bar" -ErrorAction SilentlyContinue)) {
+            $barProcesses = @(Get-Process -Name "komorebi-bar" -ErrorAction SilentlyContinue)
+            for ($index = 0; $index -lt $barConfigs.Count; $index++) {
+                if ($barProcesses.Count -le $index) {
+                    $barConfig = $barConfigs[$index]
+                    if (-not (Test-Path $barConfig -PathType Leaf)) {
+                        Write-Error "Komorebi bar configuration was not found: $barConfig"
+                        continue
+                    }
+
                 try {
                     Start-Process $bar `
+                        -ArgumentList @("--config", $barConfig) `
                         -WorkingDirectory $BasePath `
                         -WindowStyle Hidden `
                         -ErrorAction Stop
                 } catch {
-                    Write-Error "Could not start komorebi-bar: $($_.Exception.Message)"
+                    Write-Error "Could not start komorebi-bar for monitor $index`: $($_.Exception.Message)"
+                }
                 }
             }
 

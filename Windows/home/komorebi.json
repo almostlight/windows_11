@@ -40,17 +40,6 @@
     "stackbar_background": "Base01",
     "bar_accent": "Base0D"
   },
-  "bars": [
-    {
-      "command": "komorebi-bar",
-      "position": "Top",
-      "height": 20,
-      "font": "Bai Jamjuree",
-      "font_size": 10,
-      "tray_output": "All"
-    }
-  ],
-
   "whitelist": [],
   "blacklist": [],
 
@@ -67,10 +56,31 @@
   { "kind": "Exe", "id": "Spotify.exe" },
   { "kind": "Exe", "id": "NordVPN.exe" },
   { "kind": "Exe", "id": "EdgeBlock_x64.exe" },
+  { "kind": "Exe", "id": "Photos.exe" },
   { "kind": "Title", "id": "Figure " }
 ],
 
   "monitors": [
+    {
+      "workspaces": [
+        {
+          "name": "㊀",
+          "layout": "BSP"
+        },
+        {
+          "name": "㊁",
+          "layout": "BSP"
+        },
+        {
+          "name": "㊂",
+          "layout": "BSP"
+        },
+        {
+          "name": "㊃",
+          "layout": "BSP"
+        }
+      ]
+    },
     {
       "workspaces": [
         {

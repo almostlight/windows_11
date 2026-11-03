@@ -216,30 +216,6 @@ function Prompt-ForReboot {
     }
 }
 
-# =========================
-# ASK ALL QUESTIONS UPFRONT
-# =========================
-Write-SetupLog "Collecting user preferences..."
-
-$installAllRecommendedPackages = $false
-$response = Read-TimedChoice `
-    "Install all recommended packages? [y/N] (Choosing 'N' installs only strictly necessary packages)" `
-    "n"
-if ($response -eq "y") {
-    $installAllRecommendedPackages = $true
-} elseif ($response -and $response -ne "n") {
-    Write-SetupLog "Unrecognized package installation choice: '$response'. Defaulting to strictly necessary packages" "WARN"
-}
-
-$installFedoraWSL = $false
-$response = Read-TimedChoice "Install the latest Fedora on WSL? [y/N]" "n"
-if ($response -eq "y") {
-    $installFedoraWSL = $true
-}
-
-Write-SetupLog "User preferences collected. Starting provisioning..."
-
-# --- Download helper ---
 function Get-File($Url, $Out) {
     if (Test-Path $Out) { return }
 
@@ -261,6 +237,15 @@ function Get-RawRepositoryFile($RelativePath, $Out) {
         $Out
 }
 
+function Set-SymbolicLink($Source, $Target) {
+    $targetItem = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
+    if ($targetItem) {
+        Remove-Item -LiteralPath $Target -Force -ErrorAction Stop
+    }
+
+    New-Item -ItemType SymbolicLink -Path $Target -Target $Source -ErrorAction Stop | Out-Null
+}
+
 function Set-DefaultWallpaper($RepositoryPath) {
     $sourceWallpaper = Join-Path $RepositoryPath "home\.config\default.png"
     if (-not (Test-Path $sourceWallpaper -PathType Leaf)) {
@@ -270,7 +255,7 @@ function Set-DefaultWallpaper($RepositoryPath) {
     $configDir = Join-Path $BasePath ".config"
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
     $targetWallpaper = Join-Path $configDir "default.png"
-    Copy-Item $sourceWallpaper $targetWallpaper -Force -ErrorAction Stop
+    Set-SymbolicLink $sourceWallpaper $targetWallpaper
     if (-not [WindowsSetup.ConsoleNative]::SystemParametersInfo(20, 0, $targetWallpaper, 3)) {
         $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
         throw "Could not set wallpaper. Windows error code: $errorCode"
@@ -284,7 +269,7 @@ function Set-DefaultWallpaper($RepositoryPath) {
     }
 
     $targetLockScreen = Join-Path $configDir "default_lock.png"
-    Copy-Item $sourceLockScreen $targetLockScreen -Force -ErrorAction Stop
+    Set-SymbolicLink $sourceLockScreen $targetLockScreen
 
     $personalizationPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP"
     New-Item -Path $personalizationPath -Force | Out-Null
@@ -374,9 +359,71 @@ function Set-WindowsTerminalFont {
     }
 }
 
-# =========================
-# CORE SYSTEM SETUP BLOCKS
-# =========================
+function Invoke-WingetInstallWithKeepAlive($id) {
+    $wingetPath = (Get-Command winget -ErrorAction Stop).Source
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $wingetPath
+    $startInfo.Arguments = "install -e --id `"$id`" --silent --accept-package-agreements --accept-source-agreements"
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardInput = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw "Could not start winget for $id"
+        }
+
+        while (-not $process.WaitForExit(15000)) {
+            $process.StandardInput.WriteLine()
+            $process.StandardInput.Flush()
+        }
+
+        return $process.ExitCode
+    } finally {
+        $process.StandardInput.Close()
+        $process.Dispose()
+    }
+}
+
+function Install-SetupPackage($id) {
+    $installed = $null | & winget list --exact --id $id `
+        --accept-source-agreements --disable-interactivity 2>&1 |
+        Out-String
+    if ($installed -match "(?im)\b$([regex]::Escape($id))\b") {
+        Write-SetupLog "Skipping already installed package $id"
+        return
+    }
+
+    Write-SetupLog "Installing $id"
+    $exitCode = Invoke-WingetInstallWithKeepAlive $id
+    if ($exitCode -ne 0) {
+        throw "Winget failed for $id with exit code $exitCode"
+    }
+}
+
+# Collect choices before running setup steps.
+Write-SetupLog "Collecting user preferences..."
+
+$installAllRecommendedPackages = $false
+$response = Read-TimedChoice `
+    "Install all recommended packages? [y/N] (Choosing 'N' installs only strictly necessary packages)" `
+    "n"
+if ($response -eq "y") {
+    $installAllRecommendedPackages = $true
+} elseif ($response -and $response -ne "n") {
+    Write-SetupLog "Unrecognized package installation choice: '$response'. Defaulting to strictly necessary packages" "WARN"
+}
+
+$installFedoraWSL = $false
+$response = Read-TimedChoice "Install the latest Fedora on WSL? [y/N]" "n"
+if ($response -eq "y") {
+    $installFedoraWSL = $true
+}
+
+Write-SetupLog "User preferences collected. Starting provisioning..."
+
+# Run setup steps in dependency order.
 
 Invoke-Step "winget" {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -442,24 +489,6 @@ Invoke-Step "fonts" {
     Write-SetupLog "Set the Windows UI font substitution to FiraCode Nerd Font; sign out or restart to apply it"
 
     Set-WindowsTerminalFont
-}
-
-function Install-SetupPackage($id) {
-    $installed = $null | & winget list --exact --id $id `
-        --accept-source-agreements --disable-interactivity 2>&1 |
-        Out-String
-    if ($installed -match "(?im)\b$([regex]::Escape($id))\b") {
-        Write-SetupLog "Skipping already installed package $id"
-        return
-    }
-
-    Write-SetupLog "Installing $id"
-    $null | & winget install -e --id $id --silent `
-        --accept-package-agreements --accept-source-agreements `
-        --disable-interactivity
-    if ($LASTEXITCODE -ne 0) {
-        throw "Winget failed for $id with exit code $LASTEXITCODE"
-    }
 }
 
 Invoke-Step "packages" {
@@ -622,6 +651,7 @@ Invoke-Step "home-config-and-startup" {
     $configFiles = @{
         "komorebi.json" = "komorebi.json"
         "komorebi.bar.json" = "komorebi.bar.json"
+        "komorebi.bar.1.json" = "komorebi.bar.1.json"
         ".config\whkdrc" = ".config\whkdrc"
         "scripts\autohotkey\loop_accept.ahk" = "scripts\autohotkey\loop_accept.ahk"
         "scripts\autohotkey\master.ahk" = "scripts\autohotkey\master.ahk"
@@ -633,26 +663,16 @@ Invoke-Step "home-config-and-startup" {
         $target = Join-Path $BasePath $configFiles[$relativePath]
         
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
-        if (Test-Path $target) {
-            $item = Get-Item $target -Force -ErrorAction Stop
-            if ($item.Attributes -match "ReparsePoint") {
-                Remove-Item $target -Force -ErrorAction Stop
-            }
-        }
         
         if ($relativePath -eq "scripts\windows-startup.ps1" -and
             (Test-Path (Join-Path $env:TEMP "windows-setup-startup.ps1"))) {
-            Copy-Item (Join-Path $env:TEMP "windows-setup-startup.ps1") $target -Force -ErrorAction SilentlyContinue
-        } else {
-            Copy-Item $sourceFile $target -Force -ErrorAction SilentlyContinue
-        }
-        
-        if ($relativePath -eq ".config\whkdrc") {
-            $content = Get-Content $target -Raw -ErrorAction SilentlyContinue
-            if ($content) {
-                $content -replace "(?im)^super\b", "win" |
-                    Set-Content $target -Encoding utf8 -Force -ErrorAction SilentlyContinue
+            $targetItem = Get-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+            if ($targetItem) {
+                Remove-Item -LiteralPath $target -Force -ErrorAction Stop
             }
+            Copy-Item (Join-Path $env:TEMP "windows-setup-startup.ps1") $target -Force -ErrorAction Stop
+        } else {
+            Set-SymbolicLink $sourceFile $target
         }
     }
 
@@ -742,10 +762,6 @@ Invoke-Step "rdp" {
     Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 }
 
-# =========================
-# UI / SYSTEM TWEAKS
-# =========================
-
 Invoke-Step "ui-and-komorebi-hotkeys" {
     $p = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
     if (-not (Test-Path $p)) {
@@ -827,10 +843,6 @@ Invoke-Step "keyboard" {
         Write-SetupLog "Failed to configure keyboard layout: $_" "WARN"
     }
 }
-
-# =========================
-# DEBLOAT
-# =========================
 
 Invoke-Step "debloat" {
     $apps = @(
@@ -916,10 +928,6 @@ Invoke-Step "edge-blocker" {
         Start-Process "https://github.com/Sordum/Edge-Blocker/releases"
     }
 }
-
-# =========================
-# CLEANUP
-# =========================
 
 Invoke-Step "startup script" {
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
