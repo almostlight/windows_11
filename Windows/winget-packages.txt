@@ -47,6 +47,7 @@ qBittorrent.qBittorrent
 REALiX.HWiNFO
 Rufus.Rufus
 OpenWhisperSystems.Signal
+Spotify.Spotify
 Tailscale.Tailscale
 TechPowerUp.NVCleanstall
 CharlesMilette.TranslucentTB
