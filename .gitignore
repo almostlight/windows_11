@@ -1,4 +1,5 @@
 *.tar.gz
 *.tar
 *.gz
-Windows/home/scripts/setup.*.log
+*.log
+*.un~

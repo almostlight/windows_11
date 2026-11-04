@@ -84,6 +84,7 @@ irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/wind
 -  **Enable sudo** - PowerShell sudo functionality
 -  **Show hidden files** - Explorer configuration
 -  **Classic context menu** - Restore Windows 10 style menu (Win 11)
+-  **Minimal taskbar** - Hide Search, Task View, Widgets, Chat, Copilot, and the input indicator
 -  **Disable web search in Start** - Remove Bing from Start menu
 -  **Windows Defender exclusions** - Exclude automation directory
 -  **Autologon configuration** - Registry keys for automatic login

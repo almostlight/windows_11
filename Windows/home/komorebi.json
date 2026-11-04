@@ -54,6 +54,7 @@
   { "kind": "Exe", "id": "SnippingTool.exe" },
   { "kind": "Exe", "id": "AutoHotkeyUX.exe" },
   { "kind": "Exe", "id": "Spotify.exe" },
+  { "kind": "Exe", "id": "SLDWORKS.exe" },
   { "kind": "Exe", "id": "NordVPN.exe" },
   { "kind": "Exe", "id": "EdgeBlock_x64.exe" },
   { "kind": "Exe", "id": "Photos.exe" },

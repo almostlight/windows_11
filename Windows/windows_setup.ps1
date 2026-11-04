@@ -777,6 +777,12 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     }
     Set-ItemProperty -Path $p -Name "TaskbarAl" -Value 0 -Type DWord
     Set-ItemProperty -Path $p -Name "TaskbarSi" -Value 0 -Type DWord
+    Set-ItemProperty -Path $p -Name "SearchboxTaskbarMode" -Value 0 -Type DWord
+    Set-ItemProperty -Path $p -Name "TaskbarSearchMode" -Value 0 -Type DWord
+    Set-ItemProperty -Path $p -Name "ShowTaskViewButton" -Value 0 -Type DWord
+    Set-ItemProperty -Path $p -Name "TaskbarDa" -Value 0 -Type DWord
+    Set-ItemProperty -Path $p -Name "TaskbarMn" -Value 0 -Type DWord
+    Set-ItemProperty -Path $p -Name "ShowCopilotButton" -Value 0 -Type DWord
     $taskbarDeveloperSettingsPath = Join-Path $p "TaskbarDeveloperSettings"
     New-Item -Path $taskbarDeveloperSettingsPath -Force | Out-Null
     Set-ItemProperty -Path $taskbarDeveloperSettingsPath -Name "TaskbarEndTask" -Value 1 -Type DWord
@@ -798,7 +804,12 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     }
     Set-ItemProperty -Path $accentPath -Name "AccentColorMenu" -Value 0xFF24AEDF -Type DWord
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "ColorPrevalence" -Value 0 -Type DWord
-    Write-SetupLog "Configured taskbar settings, enabled End Task, and restored the legacy context menu"
+    $inputMethodPath = "HKCU:\Control Panel\Input Method"
+    if (-not (Test-Path $inputMethodPath)) {
+        New-Item $inputMethodPath | Out-Null
+    }
+    Set-ItemProperty -Path $inputMethodPath -Name "ShowStatus" -Value 0 -Type DWord
+    Write-SetupLog "Configured taskbar settings, hid optional taskbar controls, enabled End Task, and restored the legacy context menu"
 
     $stuckRectsPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
     $stuckRects = Get-ItemProperty -Path $stuckRectsPath -Name "Settings" -ErrorAction Stop
