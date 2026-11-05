@@ -10,6 +10,8 @@ $ErrorActionPreference = "Continue"
 $ScriptUrl = "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup.ps1"
 $PromptTimeoutSeconds = 5
 $HadErrors = $false
+$SetupRunId = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$WorkPath = Join-Path $env:TEMP "WindowsSetup-$PID"
 
 if (-not ("WindowsSetup.ConsoleNative" -as [type])) {
     Add-Type @'
@@ -76,11 +78,6 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal] `
     exit $process.ExitCode
 }
 
-# --- Clear cache ---
-if (-not $WhatIf) {
-    Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-}
-
 # =========================
 # MAIN SCRIPT EXECUTION
 # Wrapped in try-catch to handle errors gracefully
@@ -91,20 +88,36 @@ try {
     $BasePath = [Environment]::GetFolderPath("UserProfile")
     $Downloads = Join-Path $BasePath "Downloads"
     $ScriptsPath = Join-Path $BasePath "scripts"
-    $LogPath = Join-Path $ScriptsPath "setup.log"
+    $LogPath = Join-Path $ScriptsPath "setup.$SetupRunId.log"
 
-    New-Item -ItemType Directory -Force -Path $Downloads, $ScriptsPath | Out-Null
-    Set-Content $LogPath "Provisioning started: $date"
+    if ($WhatIf) {
+        Write-Host "[WHATIF] Provisioning started: $date"
+    } else {
+        New-Item -ItemType Directory -Force -Path $Downloads, $ScriptsPath, $WorkPath | Out-Null
+        Set-Content $LogPath "Provisioning started: $date"
+    }
 
     # --- Logging ---
     function Write-SetupLog {
-    param($Msg, $Type = "INFO")
-    $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')][$Type] $Msg"
-    Write-Output $line
-    Add-Content $LogPath $line
-}
+        param(
+            [Parameter(Mandatory)]
+            [string]$Msg,
+            [ValidateSet("INFO", "WARN", "ERROR", "SUCCESS", "WHATIF")]
+            [string]$Type = "INFO"
+        )
+        $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')][$Type] $Msg"
+        Write-Host $line
+        if (-not $WhatIf) {
+            Add-Content $LogPath $line
+        }
+    }
 
-Write-SetupLog "Starting provisioning"
+    Write-SetupLog "Starting provisioning"
+
+    function Write-Phase {
+        param([Parameter(Mandatory)][string]$Name)
+        Write-SetupLog "PHASE: $Name"
+    }
 
 function Read-TimedChoice {
     param(
@@ -171,13 +184,20 @@ function Read-TimedChoice {
 function Invoke-Step($Name, $ScriptBlock) {
     Write-SetupLog "RUN: $Name"
 
-    if ($WhatIf) { return }
+    if ($WhatIf) {
+        Write-SetupLog "WHATIF: Would run $Name" "WHATIF"
+        return
+    }
 
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = "Stop"
         & $ScriptBlock
     } catch {
         Write-SetupLog "FAILED: $Name - $_" "ERROR"
         $global:HadErrors = $true
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 }
 
@@ -191,50 +211,130 @@ function Restart-ExplorerShell {
         -ErrorAction Stop | Out-Null
 }
 
-function Prompt-ForReboot {
-    Add-Type -AssemblyName System.Windows.Forms
-
-    $message = if ($HadErrors) {
-        "Windows setup finished with errors. Check the setup log before rebooting.`n`nReboot now?"
-    } else {
-        "Windows setup completed successfully.`n`nReboot now to apply all changes?"
+function Invoke-FinalVerification {
+    Write-Phase "Verification"
+    if ($WhatIf) {
+        Write-SetupLog "WHATIF: Would verify registry, language, startup, and scheduled-task settings" "WHATIF"
+        return
     }
 
-    $choice = [System.Windows.Forms.MessageBox]::Show(
-        $message,
-        "Windows Setup",
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Question,
-        [System.Windows.Forms.MessageBoxDefaultButton]::Button2
-    )
-
-    if ($choice -eq [System.Windows.Forms.DialogResult]::Yes) {
-        Write-SetupLog "User chose to reboot now"
-        Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 0" -WindowStyle Hidden
-    } else {
-        Write-SetupLog "User chose to reboot later"
-    }
-}
-
-function Get-File($Url, $Out) {
-    if (Test-Path $Out) { return }
-
-    for ($i=0; $i -lt 3; $i++) {
+    $failedChecks = [System.Collections.Generic.List[string]]::new()
+    function Assert-SetupCheck {
+        param([string]$Name, [scriptblock]$Test)
         try {
-            Invoke-WebRequest $Url -OutFile $Out -TimeoutSec 60 -UseBasicParsing
-            return
+            if (& $Test) {
+                Write-SetupLog "PASS: $Name" "SUCCESS"
+            } else {
+                Write-SetupLog "FAIL: $Name" "ERROR"
+                $failedChecks.Add($Name) | Out-Null
+            }
         } catch {
-            Start-Sleep 2
+            Write-SetupLog "FAIL: $Name - $($_.Exception.Message)" "ERROR"
+            $failedChecks.Add($Name) | Out-Null
         }
     }
 
-    throw "Download failed: $Url"
+    Assert-SetupCheck "Input method indicator hidden" {
+        (Get-ItemPropertyValue "HKCU:\Control Panel\Input Method" -Name "ShowStatus" -ErrorAction Stop) -eq 2
+    }
+    Assert-SetupCheck "Taskbar controls hidden" {
+        $advanced = Get-ItemProperty `
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+            -ErrorAction Stop
+        $advanced.SearchboxTaskbarMode -eq 0 -and
+            $advanced.TaskbarSearchMode -eq 0 -and
+            $advanced.ShowTaskViewButton -eq 0 -and
+            $advanced.TaskbarDa -eq 0 -and
+            $advanced.TaskbarMn -eq 0 -and
+            $advanced.ShowCopilotButton -eq 0
+    }
+    Assert-SetupCheck "Polish keyboard layout configured" {
+        $polish = Get-WinUserLanguageList |
+            Where-Object LanguageTag -eq "pl-PL" |
+            Select-Object -First 1
+        $null -ne $polish -and $polish.InputMethodTips -contains "0415:00000415"
+    }
+    Assert-SetupCheck "Startup script deployed" {
+        Test-Path (Join-Path $BasePath "scripts\windows-startup.ps1") -PathType Leaf
+    }
+    Assert-SetupCheck "Graphical startup task registered" {
+        $null -ne (Get-ScheduledTask -TaskName "Graphical Environment Startup" -ErrorAction Stop)
+    }
+    Assert-SetupCheck "Komorebi watchdog task registered" {
+        $null -ne (Get-ScheduledTask -TaskName "Komorebi Process Watchdog" -ErrorAction Stop)
+    }
+
+    if ($failedChecks.Count -gt 0) {
+        $global:HadErrors = $true
+        Write-SetupLog "Verification failed for $($failedChecks.Count) check(s)" "ERROR"
+    } else {
+        Write-SetupLog "Verification passed for all 6 checks" "SUCCESS"
+    }
+}
+
+function Get-File {
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$Out,
+        [string]$ExpectedSha256
+    )
+
+    $downloadPath = Join-Path $WorkPath ([IO.Path]::GetFileName($Out) + ".$PID.download")
+
+    for ($i=0; $i -lt 3; $i++) {
+        try {
+            Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
+            Invoke-WebRequest $Url -OutFile $downloadPath -TimeoutSec 60 -UseBasicParsing -ErrorAction Stop
+            $download = Get-Item $downloadPath -ErrorAction Stop
+            if ($download.Length -eq 0) {
+                throw "Downloaded file was empty: $Url"
+            }
+            if ($ExpectedSha256) {
+                $actualSha256 = (Get-FileHash $downloadPath -Algorithm SHA256).Hash
+                if ($actualSha256 -ne $ExpectedSha256.ToUpperInvariant()) {
+                    throw "SHA-256 mismatch for $Url. Expected $ExpectedSha256, got $actualSha256"
+                }
+            }
+            Move-Item $downloadPath $Out -Force -ErrorAction Stop
+            return
+        } catch {
+            if ($i -eq 2) {
+                throw "Download failed after 3 attempts: $Url - $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
 }
 
 function Get-RawRepositoryFile($RelativePath, $Out) {
     Get-File `
         "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/$RelativePath" `
         $Out
+}
+
+function Get-LatestGitHubAsset {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$AssetName
+    )
+
+    $release = Invoke-RestMethod `
+        "https://api.github.com/repos/$Repository/releases/latest" `
+        -Headers @{ "User-Agent" = "WindowsSetup" } `
+        -ErrorAction Stop
+    $asset = $release.assets | Where-Object name -eq $AssetName | Select-Object -First 1
+    if (-not $asset) {
+        throw "GitHub release asset was not found: $Repository/$AssetName"
+    }
+
+    [pscustomobject]@{
+        Url = $asset.browser_download_url
+        Sha256 = if ($asset.digest -match "^sha256:([a-f0-9]{64})$") {
+            $Matches[1]
+        } else {
+            $null
+        }
+    }
 }
 
 function Set-SymbolicLink($Source, $Target) {
@@ -423,8 +523,9 @@ if ($response -eq "y") {
 
 Write-SetupLog "User preferences collected. Starting provisioning..."
 
-# Run setup steps in dependency order.
+# Run setup steps in explicit phases.
 
+Write-Phase "Package manager and fonts"
 Invoke-Step "winget" {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         $pkg = Join-Path $Downloads "winget.msixbundle"
@@ -438,9 +539,11 @@ Invoke-Step "fonts" {
     $fontArchive = Join-Path $Downloads "WindowsSetup-fonts"
     $firaCodeArchive = Join-Path $Downloads "FiraCode.zip"
 
+    $firaCodeAsset = Get-LatestGitHubAsset "ryanoasis/nerd-fonts" "FiraCode.zip"
     Get-File `
-        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip" `
-        $firaCodeArchive
+        $firaCodeAsset.Url `
+        $firaCodeArchive `
+        $firaCodeAsset.Sha256
 
     if (Test-Path $fontArchive) {
         Remove-Item $fontArchive -Recurse -Force
@@ -518,6 +621,7 @@ Invoke-Step "packages" {
     }
 }
 
+Write-Phase "PowerToys configuration"
 Invoke-Step "powertoys" {
     $powerToysCli = Join-Path $env:LOCALAPPDATA "PowerToys\bin\PowerToys.Settings.CLI.exe"
     $powerToysExe = Join-Path $env:LOCALAPPDATA "PowerToys\PowerToys.exe"
@@ -527,36 +631,41 @@ Invoke-Step "powertoys" {
         return
     }
 
-    $powerToysRunning = Get-Process -Name "PowerToys" -ErrorAction SilentlyContinue
+    $powerToysRunning = @(Get-Process -Name "PowerToys" -ErrorAction SilentlyContinue)
     if ($powerToysRunning) {
         Write-SetupLog "Stopping PowerToys to configure modules..."
-        Stop-Process -Name "PowerToys" -Force -ErrorAction SilentlyContinue
+        foreach ($process in $powerToysRunning) {
+            Stop-Process -Id $process.Id -Force -ErrorAction Stop
+        }
         Start-Sleep -Seconds 3
     }
 
     Write-SetupLog "Configuring PowerToys modules..."
 
-    & $powerToysCli enable PowerLauncher
-    & $powerToysCli enable AutoHideCursor
-    & $powerToysCli enable PowerAccent
-    & $powerToysCli enable PowerPreview
-    & $powerToysCli enable RegistryPreview
-
-    & $powerToysCli disable FancyZones
-    & $powerToysCli disable Workspaces
-    & $powerToysCli disable AltWindowCycle
-
-    Write-SetupLog "Setting PowerLauncher hotkey to Alt+Space..."
-    $powerLauncherSettings = @{
-        properties = @{
-            open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
+    foreach ($module in @("PowerLauncher", "AutoHideCursor", "PowerAccent", "PowerPreview", "RegistryPreview")) {
+        & $powerToysCli enable $module
+        if ($LASTEXITCODE -ne 0) {
+            throw "PowerToys failed to enable $module with exit code $LASTEXITCODE"
         }
     }
+    foreach ($module in @("FancyZones", "Workspaces", "AltWindowCycle")) {
+        & $powerToysCli disable $module
+        if ($LASTEXITCODE -ne 0) {
+            throw "PowerToys failed to disable $module with exit code $LASTEXITCODE"
+        }
+    }
+
+    Write-SetupLog "Setting PowerLauncher hotkey to Alt+Space..."
+    $settingsConfigured = $false
     $settingsPath = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys Run\settings.json"
     if (Test-Path $settingsPath) {
         $currentSettings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+        if (-not $currentSettings.properties) {
+            $currentSettings | Add-Member -MemberType NoteProperty -Name properties -Value ([pscustomobject]@{})
+        }
         $currentSettings.properties.open_powerlauncher = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32; key="" }
         $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding utf8
+        $settingsConfigured = $true
     }
     $settingsPath2 = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys\PowerToys.Run\settings.json"
     if (Test-Path $settingsPath2) {
@@ -564,15 +673,26 @@ Invoke-Step "powertoys" {
         $currentSettings.hotkey = @{ win=$false; ctrl=$false; alt=$true; shift=$false; code=32 }
         $currentSettings.enabled = $true
         $currentSettings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath2 -Encoding utf8
+        $settingsConfigured = $true
+    }
+    if (-not $settingsConfigured) {
+        throw "PowerLauncher settings file was not found"
     }
 
     Write-SetupLog "Restarting PowerToys..."
-    Start-Process $powerToysExe -ErrorAction SilentlyContinue
+    if (-not (Test-Path $powerToysExe -PathType Leaf)) {
+        throw "PowerToys executable was not found: $powerToysExe"
+    }
+    Start-Process $powerToysExe -ErrorAction Stop | Out-Null
     Start-Sleep -Seconds 5
+    if (-not (Get-Process -Name "PowerToys" -ErrorAction SilentlyContinue)) {
+        throw "PowerToys did not start after configuration"
+    }
 
     Write-SetupLog "PowerToys configuration complete"
 }
 
+Write-Phase "Optional WSL installation"
 Invoke-Step "fedora-wsl" {
     if ($installFedoraWSL) {
         Write-SetupLog "Installing Fedora on WSL"
@@ -599,47 +719,18 @@ Invoke-Step "fedora-wsl" {
     }
 }
 
+Write-Phase "Configuration and startup"
 Invoke-Step "home-config-and-startup" {
     $repoDir = Join-Path $BasePath ".almostlight-windows-setup"
     
     if (-not (Test-Path $repoDir)) {
-        $git = Get-Command git -ErrorAction SilentlyContinue
-        if ($git) {
-            Write-SetupLog "Cloning repository with git"
-            & git clone https://github.com/almostlight/WindowsSetup.git $repoDir --depth 1
-            if ($LASTEXITCODE -ne 0) {
-                throw "Git clone failed with exit code $LASTEXITCODE"
-            }
-        } else {
-            Write-SetupLog "Git not found, falling back to ZIP download"
-            $repoZip = Join-Path $env:TEMP "WindowsSetup-repo.zip"
-            $repoUrl = "https://github.com/almostlight/WindowsSetup/archive/refs/heads/main.zip"
-            $tempExtractDir = Join-Path $env:TEMP "WindowsSetup-extract"
-            
-            Get-File $repoUrl $repoZip
-            if (Test-Path $tempExtractDir) {
-                Remove-Item $tempExtractDir -Recurse -Force
-            }
-            New-Item -ItemType Directory -Force -Path $tempExtractDir | Out-Null
-            Expand-Archive $repoZip $tempExtractDir -Force
-            
-            $extractedDir = Get-ChildItem -Path $tempExtractDir -Directory | Select-Object -First 1
-            if (-not $extractedDir) {
-                throw "No directory found after extracting repository ZIP"
-            }
-            Copy-Item $extractedDir.FullName $repoDir -Recurse -Force
-            Remove-Item $tempExtractDir -Recurse -Force
-            
-            Write-SetupLog "Initializing Git repository"
-            Push-Location $repoDir
-            & git init
-            & git remote add origin https://github.com/almostlight/WindowsSetup.git
-            & git fetch --depth 1 origin main
-            & git checkout main
-            Pop-Location
-            if ($LASTEXITCODE -ne 0) {
-                throw "Git initialization failed with exit code $LASTEXITCODE"
-            }
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            throw "Git is required to clone the WindowsSetup repository"
+        }
+        Write-SetupLog "Cloning repository with git"
+        & git clone https://github.com/almostlight/WindowsSetup.git $repoDir --depth 1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git clone failed with exit code $LASTEXITCODE"
         }
         Write-SetupLog "Repository cloned to $repoDir"
     } else {
@@ -755,6 +846,7 @@ Invoke-Step "home-config-and-startup" {
     Write-SetupLog "Created shortcuts to local and global startup folders in .config"
 }
 
+Write-Phase "System and desktop settings"
 Invoke-Step "rdp" {
     Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
         -Name "fDenyTSConnections" -Value 0
@@ -775,14 +867,18 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     if (-not (Test-Path $p)) {
         New-Item $p | Out-Null
     }
-    Set-ItemProperty -Path $p -Name "TaskbarAl" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "TaskbarSi" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "SearchboxTaskbarMode" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "TaskbarSearchMode" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "ShowTaskViewButton" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "TaskbarDa" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "TaskbarMn" -Value 0 -Type DWord
-    Set-ItemProperty -Path $p -Name "ShowCopilotButton" -Value 0 -Type DWord
+    @{
+        TaskbarAl = 0
+        TaskbarSi = 0
+        SearchboxTaskbarMode = 0
+        TaskbarSearchMode = 0
+        ShowTaskViewButton = 0
+        TaskbarDa = 0
+        TaskbarMn = 0
+        ShowCopilotButton = 0
+    }.GetEnumerator() | ForEach-Object {
+        Set-ItemProperty -Path $p -Name $_.Key -Value $_.Value -Type DWord
+    }
     $taskbarDeveloperSettingsPath = Join-Path $p "TaskbarDeveloperSettings"
     New-Item -Path $taskbarDeveloperSettingsPath -Force | Out-Null
     Set-ItemProperty -Path $taskbarDeveloperSettingsPath -Name "TaskbarEndTask" -Value 1 -Type DWord
@@ -808,18 +904,8 @@ Invoke-Step "ui-and-komorebi-hotkeys" {
     if (-not (Test-Path $inputMethodPath)) {
         New-Item $inputMethodPath | Out-Null
     }
-    Set-ItemProperty -Path $inputMethodPath -Name "ShowStatus" -Value 0 -Type DWord
-    Write-SetupLog "Configured taskbar settings, hid optional taskbar controls, enabled End Task, and restored the legacy context menu"
-
-    $stuckRectsPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
-    $stuckRects = Get-ItemProperty -Path $stuckRectsPath -Name "Settings" -ErrorAction Stop
-    $taskbarSettings = [byte[]]$stuckRects.Settings
-    if ($taskbarSettings.Length -le 12) {
-        throw "Taskbar settings are incomplete: $stuckRectsPath"
-    }
-    $taskbarSettings[8] = 3
-    $taskbarSettings[12] = 0
-    Set-ItemProperty -Path $stuckRectsPath -Name "Settings" -Value $taskbarSettings -Type Binary
+    Set-ItemProperty -Path $inputMethodPath -Name "ShowStatus" -Value 2 -Type DWord
+    Write-SetupLog "Configured taskbar settings, hid optional taskbar controls and input indicator, enabled End Task, and restored the legacy context menu"
 }
 
 Invoke-Step "unpin-taskbar" {
@@ -844,15 +930,11 @@ Invoke-Step "unpin-taskbar" {
 }
 
 Invoke-Step "keyboard" {
-    try {
-        $lang = New-WinUserLanguageList en-US
-        $lang[0].InputMethodTips.Clear()
-        $lang[0].InputMethodTips.Add("0415:00000415")
-        Set-WinUserLanguageList $lang -Force
-        Write-SetupLog "Keyboard layout configured successfully"
-    } catch {
-        Write-SetupLog "Failed to configure keyboard layout: $_" "WARN"
-    }
+    $lang = New-WinUserLanguageList pl-PL
+    $lang[0].InputMethodTips.Clear()
+    $lang[0].InputMethodTips.Add("0415:00000415")
+    Set-WinUserLanguageList $lang -Force
+    Write-SetupLog "Polish language and keyboard layout configured successfully"
 }
 
 Invoke-Step "debloat" {
@@ -906,54 +988,13 @@ Invoke-Step "scheduled-task-debloat" {
     }
 }
 
-Invoke-Step "edge-blocker" {
-    if (-not $installAllRecommendedPackages) {
-        Write-SetupLog "Skipping Edge Blocker because all recommended packages were not selected"
-        return
-    }
-
-    $edgeUrl = "https://securedl.chip-downloads.de/downloads/41092168/EdgeBlock2.0.zip?cdr=4&cid=88734083&platform=chip&1779964617-1779972117-46994b-B-30a845019b172eaee80a888a40bb5b9f"
-    $out = Join-Path $Downloads "EdgeBlocker.zip"
-    $dir = Join-Path $Downloads "EdgeBlocker"
-
-    try {
-        Write-SetupLog "Downloading Edge Blocker from secured mirror"
-        Get-File $edgeUrl $out
-
-        if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
-        Expand-Archive $out $dir -Force
-
-        $exe = Get-ChildItem $dir -Recurse -Filter "*EdgeBlock*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-
-        if ($exe) {
-            Write-SetupLog "Launching Edge Blocker: $($exe.FullName)"
-            Start-Process -FilePath $exe.FullName -WorkingDirectory $dir -Verb RunAs
-        } else {
-            Write-SetupLog "EdgeBlocker executable not found after extraction, opening download pages" "WARN"
-            Start-Process "https://www.sordum.org/9312/edge-blocker-v2-0/"
-            Start-Process "https://github.com/Sordum/Edge-Blocker/releases"
-        }
-    } catch {
-        Write-SetupLog "Edge Blocker automated install failed: $_" "WARN"
-        Start-Process "https://www.sordum.org/9312/edge-blocker-v2-0/"
-        Start-Process "https://github.com/Sordum/Edge-Blocker/releases"
-    }
-}
-
-Invoke-Step "startup script" {
-    $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
-    if (-not (Test-Path $startupScript -PathType Leaf)) {
-        Write-SetupLog "Startup script was not deployed: $startupScript" "ERROR"
-        $global:HadErrors = $true
-        return
-    }
-    & $startupScript
-}
-
-Invoke-Step "restart-explorer" {
+Invoke-Step "startup-and-restart-explorer" {
+    & (Join-Path $BasePath "scripts\windows-startup.ps1")
     Restart-ExplorerShell
     Write-SetupLog "Restarted Explorer shell without opening an Explorer window"
 }
+
+Invoke-FinalVerification
 
     Write-SetupLog "Provisioning complete"
 } catch {
@@ -961,16 +1002,13 @@ Invoke-Step "restart-explorer" {
     Write-SetupLog "ERROR: $_" "ERROR"
 }
 
-# Always open the log file and keep window open (unless in WhatIf mode)
+# Only clean up this run's private working directory.
+if (Test-Path $WorkPath) {
+    Remove-Item $WorkPath -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Finish without opening interactive UI.
 if (-not $WhatIf) {
-    try {
-        Prompt-ForReboot
-    } catch {
-        Write-SetupLog "Could not display the reboot prompt: $_" "ERROR"
-    }
-    Start-Sleep -Seconds 2
-    notepad $LogPath
-    Write-Host "Press any key to exit..."
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    exit 0
+    Write-Host "Setup log: $LogPath"
+    exit $(if ($HadErrors) { 1 } else { 0 })
 }

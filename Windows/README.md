@@ -17,6 +17,9 @@ Checkpoint-Computer -Description "Before Automation Script" -RestorePointType "M
 irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup.ps1 | iex
 ```
 
+Git is required because the setup clones the repository directly; install Git
+before running the one-line command if it is not already available.
+
 #### Or, for latest features:
 
 ```powershell
@@ -84,7 +87,8 @@ irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/wind
 -  **Enable sudo** - PowerShell sudo functionality
 -  **Show hidden files** - Explorer configuration
 -  **Classic context menu** - Restore Windows 10 style menu (Win 11)
--  **Minimal taskbar** - Hide Search, Task View, Widgets, Chat, Copilot, and the input indicator
+-  **Minimal taskbar** - Hide Search, Task View, Widgets, Chat, Copilot, and the input indicator (`HKCU:\Control Panel\Input Method\ShowStatus=2`)
+-  **Polish keyboard layout** - Configure `pl-PL` with the `0415:00000415` keyboard
 -  **Disable web search in Start** - Remove Bing from Start menu
 -  **Windows Defender exclusions** - Exclude automation directory
 -  **Autologon configuration** - Registry keys for automatic login
@@ -104,6 +108,7 @@ irm https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/wind
 - **Windows Defender** - Exclusion for `C:\Users\Public\Automation`
 - **System accounts** - Enables Administrator account
 - **Installed software** - Multiple applications and utilities
+- **Temporary setup files** - Only the script's private `%TEMP%\WindowsSetup-<process id>` directory is removed; the rest of `%TEMP%` is left untouched.
 
 ### Exclusions
 The script adds `C:\Users\Public\Automation` to Windows Defender exclusions. This is necessary for automation scripts but means:
@@ -128,7 +133,22 @@ notepad "$env:USERPROFILE\scripts\setup.<timestamp>.log"
 Some items require manual configuration after the script runs:
 
 - **Autologon** - enter your credentials
-- **System Restart** - Some changes may require a reboot to take effect
+- **System Restart** - Some changes may require a reboot to apply fonts, language, and taskbar changes. The script does not reboot automatically.
+
+## Dry run and verification
+
+Use `-WhatIf` to collect preferences and print the setup phases without making changes:
+
+```powershell
+.\windows_setup.ps1 -WhatIf
+```
+
+Each normal run creates a timestamped log at
+`%USERPROFILE%\scripts\setup.<timestamp>.log`. The script verifies the input-method
+indicator, taskbar values, keyboard layout, deployed startup script, and scheduled
+startup/watchdog tasks before finishing. A failed verification is logged as an
+error and causes the script to return exit code `1`. The repository is cloned
+with Git; there is no ZIP-download fallback.
 
 ## ️ Troubleshooting
 
