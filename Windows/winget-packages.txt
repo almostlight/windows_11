@@ -4,7 +4,7 @@
 7zip.7zip
 AutoHotkey.AutoHotkey
 Bambulab.Bambustudio
-# ArduinoSA.IDE.stable
+ArduinoSA.IDE.stable
 Arm.GnuArmEmbeddedToolchain
 # Autodesk.Fusion
 Klocman.BulkCrapUninstaller
@@ -42,6 +42,7 @@ Nextcloud.NextcloudDesktop
 Ninja-build.Ninja
 # NordSecurity.NordVPN
 Notion.Notion
+OpenRocket.OpenRocket
 OpenVPNTechnologies.OpenVPN
 qBittorrent.qBittorrent
 REALiX.HWiNFO
