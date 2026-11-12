@@ -694,6 +694,37 @@ Invoke-Step "msys2-setup" {
     Write-SetupLog "Developer environment configured: MSYS2 with Mingw-w64 UCRT toolchain" "SUCCESS"
 }
 
+Invoke-Step "dotfiles-vimrc" {
+    $vimrcSource = Join-Path $BasePath ".vimrc"
+    $dotfilesRepo = Join-Path $BasePath ".dotfiles"
+    $dotfilesVimrc = Join-Path $dotfilesRepo "home\headless\rc\.vimrc"
+    
+    if (Test-Path $vimrcSource) {
+        Write-SetupLog "vimrc already exists at $vimrcSource"
+    } else {
+        Write-SetupLog "Cloning dotfiles repository to get .vimrc..."
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Write-SetupLog "Git not available, cannot clone dotfiles" "WARN"
+            return
+        }
+        
+        if (-not (Test-Path $dotfilesRepo)) {
+            & git clone https://github.com/almostlight/dotfiles.git $dotfilesRepo --depth 1
+            if ($LASTEXITCODE -ne 0) {
+                Write-SetupLog "Failed to clone dotfiles repository" "WARN"
+                return
+            }
+        }
+        
+        if (Test-Path $dotfilesVimrc) {
+            Copy-Item $dotfilesVimrc $vimrcSource -Force
+            Write-SetupLog "Copied .vimrc from dotfiles to $vimrcSource" "SUCCESS"
+        } else {
+            Write-SetupLog "vimrc not found in dotfiles repository at $dotfilesVimrc" "WARN"
+        }
+    }
+}
+
 Write-Phase "PowerToys configuration"
 Invoke-Step "powertoys" {
     $powerToysCli = Join-Path $env:LOCALAPPDATA "PowerToys\bin\PowerToys.Settings.CLI.exe"
@@ -841,6 +872,16 @@ Invoke-Step "home-config-and-startup" {
     }
 
     Set-DefaultWallpaper (Join-Path $repoDir "Windows")
+    
+    $sourceVimrc = Join-Path $BasePath ".vimrc"
+    $targetVimrc = Join-Path $env:LOCALAPPDATA "Microsoft VS Code\.vimrc"
+    
+    if (Test-Path $sourceVimrc) {
+        Set-SymbolicLink $sourceVimrc $targetVimrc
+        Write-SetupLog "Created symlink from $sourceVimrc to $targetVimrc" "SUCCESS"
+    } else {
+        Write-SetupLog "Source .vimrc not found at $sourceVimrc, skipping symlink" "WARN"
+    }
     
     $startupScript = Join-Path $BasePath "scripts\windows-startup.ps1"
     if (-not (Test-Path $startupScript -PathType Leaf)) {
