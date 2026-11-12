@@ -601,7 +601,8 @@ Invoke-Step "packages" {
         "LGUG2Z.whkd",
         "AutoHotkey.AutoHotkey",
         "Microsoft.PowerToys",
-        "Microsoft.PowerShell"
+        "Microsoft.PowerShell",
+        "msys2.msys2"
     )
 
     Get-RawRepositoryFile "Windows/winget-packages.txt" $packageList
@@ -619,6 +620,51 @@ Invoke-Step "packages" {
     foreach ($packageId in $packagesToInstall) {
         Install-SetupPackage $packageId
     }
+}
+
+Invoke-Step "msys2-setup" {
+    $msys2Path = "C:\msys64"
+    
+    if (-not (Test-Path $msys2Path)) {
+        Write-SetupLog "MSYS2 not found at $msys2Path, skipping configuration" "WARN"
+        return
+    }
+    
+    Write-SetupLog "Configuring MSYS2 development environment..."
+    
+    $pacmanPath = Join-Path $msys2Path "usr\bin\pacman.exe"
+    if (-not (Test-Path $pacmanPath)) {
+        Write-SetupLog "pacman not found at $pacmanPath, skipping MSYS2 configuration" "WARN"
+        return
+    }
+    
+    Write-SetupLog "Installing base-devel and mingw-w64-ucrt-x86_64-toolchain via pacman..."
+    $pacmanArgs = "-S --needed --noconfirm base-devel mingw-w64-ucrt-x86_64-toolchain"
+    $process = Start-Process -FilePath $pacmanPath -ArgumentList $pacmanArgs -Wait -PassThru -NoNewWindow
+    if ($process.ExitCode -ne 0) {
+        Write-SetupLog "pacman installation failed with exit code $($process.ExitCode)" "WARN"
+    } else {
+        Write-SetupLog "MSYS2 toolchain installed successfully" "SUCCESS"
+    }
+    
+    Write-SetupLog "Configuring PATH for MSYS2..."
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $newPaths = @(
+        Join-Path $msys2Path "mingw64\bin",
+        Join-Path $msys2Path "usr\bin"
+    )
+    
+    foreach ($newPath in $newPaths) {
+        if ($userPath -notlike "*$newPath*") {
+            $userPath = "$newPath;$userPath"
+        }
+    }
+    [Environment]::SetEnvironmentVariable("Path", $userPath, "User")
+    
+    $env:Path = $userPath
+    
+    Write-SetupLog "MSYS2 PATH configuration complete"
+    Write-SetupLog "Developer environment configured: MSYS2 with Mingw-w64 UCRT toolchain" "SUCCESS"
 }
 
 Write-Phase "PowerToys configuration"
