@@ -31,12 +31,13 @@ Microsoft.DotNet.DesktopRuntime.9
 # Microsoft.Office
 Microsoft.OneDrive
 Microsoft.PowerShell
+Python.Python.3.12
 Microsoft.PowerToys
 Microsoft.Outlook
 Microsoft.Teams
 Microsoft.VisualStudioCode
 Microsoft.WSL
-# Microsoft.WindowsTerminal
+Microsoft.WindowsTerminal
 Mozilla.Firefox
 MSYS2.MSYS2
 Nextcloud.NextcloudDesktop
