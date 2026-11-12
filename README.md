@@ -8,20 +8,20 @@ To improve these scripts:
 
 Thanks :)
 
-##  Support
+## Support
 
-- **Issues**: [GitHub Issues](https://github.com/almostlight/powershell/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/almostlight/powershell/discussions)
+- **Issues**: [GitHub Issues](https://github.com/almostlight/WindowsSetup/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/almostlight/WindowsSetup/discussions)
 - **Log File**: Always check `%USERPROFILE%\scripts\setup.<timestamp>.log` first
 
-##  License
+## License
 
 These scripts are provided as-is. Use at your own risk.
 
 ---
 
-##  TODO
-- Add Linux guest auto-deployment script
-- Check for existing Looking Glass and VDD installations on host side
-- Edit software list
-- Add Github login
+## TODO
+- Review and update software package list
+- Add support for additional WSL distributions
+- Improve error handling and recovery
+- Add pre-flight system checks
