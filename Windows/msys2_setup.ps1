@@ -66,6 +66,33 @@ if ($WhatIf) {
 }
 
 Write-SetupLog -Msg 'Starting MSYS2 configuration' -Type 'INFO'
+# --- Helper function to clean stale pacman lock files ---
+function Clear-StalePacmanLock {
+    param (
+        [string]$Msys2Path
+    )
+
+    # In MSYS2, /var/lib/pacman/db.lck maps to $Msys2Path\var\lib\pacman\db.lck
+    $LockFile = Join-Path $Msys2Path 'var\lib\pacman\db.lck'
+    $staleLocksRemoved = 0
+
+    if (Test-Path $LockFile -PathType Leaf) {
+        # Check if lock file is older than 5 minutes (stale)
+        $lockTime = (Get-Item $LockFile).LastWriteTime
+        $age = (Get-Date) - $lockTime
+
+        if ($age.TotalMinutes -gt 5) {
+            Write-SetupLog -Msg "Removing stale pacman lock file: $LockFile (age: $($age.TotalMinutes) min)" -Type 'WARN'
+            Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+            $staleLocksRemoved++
+        } else {
+            Write-SetupLog -Msg "Active pacman lock detected at $LockFile (age: $($age.TotalMinutes) min) - will retry after pacman completes" -Type 'WARN'
+        }
+    }
+
+    return $staleLocksRemoved
+}
+
 
 try {
     $Msys2Path = 'C:\msys64'
@@ -83,6 +110,12 @@ try {
         return
     }
 
+
+    # Clean up any stale pacman lock files before starting
+    $removedLocks = Clear-StalePacmanLock -Msys2Path $Msys2Path
+    if ($removedLocks -gt 0) {
+        Write-SetupLog -Msg "Removed $removedLocks stale pacman lock file(s)" -Type 'INFO'
+    }
     Write-SetupLog -Msg 'Updating package database...'
     $UpdateArgs = '-Syu --noconfirm --disable-download-timeout'
     $UpdateProcess = Start-Process -FilePath $PacmanPath -ArgumentList $UpdateArgs -Wait -PassThru -NoNewWindow
