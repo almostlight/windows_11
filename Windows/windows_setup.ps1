@@ -46,31 +46,12 @@ $HadErrors = $False
 $SetupRunId = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
 $WorkPath = Join-Path $Env:TEMP "WindowsSetup-$PID"
 
-if (-not ('WindowsSetup.ConsoleNative' -as [type])) {
-    Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-
-namespace WindowsSetup {
-    public static class ConsoleNative {
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern IntPtr GetStdHandle(int handle);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool GetConsoleMode(IntPtr handle, out uint mode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool SetConsoleMode(IntPtr handle, uint mode);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern bool SystemParametersInfo(
-            uint action,
-            uint parameter,
-            string value,
-            uint winIni);
-    }
-}
-'@
+# Dot-source shared functions
+$SetupFunctionsPath = Join-Path $PSScriptRoot 'SetupFunctions.ps1'
+if (Test-Path $SetupFunctionsPath) {
+    . $SetupFunctionsPath
+} else {
+    throw "SetupFunctions.ps1 not found at $SetupFunctionsPath"
 }
 
 if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]\

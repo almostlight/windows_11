@@ -39,6 +39,11 @@ param (
 $ErrorActionPreference = 'Stop'
 $ScriptUrl = 'https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup_vm.ps1'
 
+# Load shared functions
+$ModuleRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path $MyInvocation.MyCommand.Path }
+. (Join-Path $ModuleRoot 'SetupFunctions.ps1')
+
+# --- Self-elevation ---
 if (-not ([Security.Principal.WindowsPrincipal]\
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {

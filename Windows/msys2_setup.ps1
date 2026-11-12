@@ -32,6 +32,11 @@ param (
 
 $ErrorActionPreference = 'Stop'
 
+# Load shared functions
+$ModuleRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path $MyInvocation.MyCommand.Path }
+. (Join-Path $ModuleRoot 'SetupFunctions.ps1')
+
+# Override Write-SetupLog to use the script's log file
 function Write-SetupLog {
     [CmdletBinding()]
     param (
@@ -115,11 +120,10 @@ try {
 
     Write-SetupLog -Msg 'Configuring PATH for MSYS2...'
     $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $NewPaths = @(
-        Join-Path $Msys2Path 'ucrt64\bin',
-        Join-Path $Msys2Path 'mingw64\bin',
-        Join-Path $Msys2Path 'usr\bin'
-    )
+    $NewPaths = @()
+    $NewPaths += Join-Path $Msys2Path 'ucrt64\bin'
+    $NewPaths += Join-Path $Msys2Path 'mingw64\bin'
+    $NewPaths += Join-Path $Msys2Path 'usr\bin'
 
     foreach ($NewPath in $NewPaths) {
         if ($UserPath -notlike "*$NewPath*") {
