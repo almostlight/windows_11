@@ -638,13 +638,39 @@ Invoke-Step "msys2-setup" {
         return
     }
     
-    Write-SetupLog "Installing base-devel, mingw-w64-ucrt-x86_64-toolchain, gcc, g++, gdb via pacman..."
-    $pacmanArgs = "-S --needed --noconfirm base-devel mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gdb"
+    Write-SetupLog "Updating package database..."
+    $updateArgs = "-Syu --noconfirm --disable-download-timeout"
+    $updateProcess = Start-Process -FilePath $pacmanPath -ArgumentList $updateArgs -Wait -PassThru -NoNewWindow
+    if ($updateProcess.ExitCode -ne 0) {
+        Write-SetupLog "pacman update failed with exit code $($updateProcess.ExitCode)" "WARN"
+    }
+    
+    Write-SetupLog "Installing gcc, g++, gdb, make via pacman..."
+    $pacmanArgs = "-S --needed --noconfirm --disable-download-timeout mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gdb mingw-w64-ucrt-x86_64-make"
     $process = Start-Process -FilePath $pacmanPath -ArgumentList $pacmanArgs -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -ne 0) {
         Write-SetupLog "pacman installation failed with exit code $($process.ExitCode)" "WARN"
     } else {
         Write-SetupLog "MSYS2 toolchain installed successfully" "SUCCESS"
+    }
+    
+    Write-SetupLog "Verifying gcc, g++, gdb installations..."
+    $ucrtBinPath = Join-Path $msys2Path "ucrt64\bin"
+    $tools = @("gcc.exe", "g++.exe", "gdb.exe", "make.exe")
+    $missingTools = @()
+    
+    foreach ($tool in $tools) {
+        $toolPath = Join-Path $ucrtBinPath $tool
+        if (-not (Test-Path $toolPath)) {
+            $missingTools += $tool
+            Write-SetupLog "MISSING: $toolPath not found" "WARN"
+        } else {
+            Write-SetupLog "FOUND: $toolPath" "SUCCESS"
+        }
+    }
+    
+    if ($missingTools.Count -gt 0) {
+        Write-SetupLog "WARNING: Missing tools: $($missingTools -join ', ')" "WARN"
     }
     
     Write-SetupLog "Configuring PATH for MSYS2..."
