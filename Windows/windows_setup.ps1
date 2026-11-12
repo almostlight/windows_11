@@ -650,6 +650,7 @@ Invoke-Step "msys2-setup" {
     Write-SetupLog "Configuring PATH for MSYS2..."
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     $newPaths = @(
+        Join-Path $msys2Path "ucrt64\bin",
         Join-Path $msys2Path "mingw64\bin",
         Join-Path $msys2Path "usr\bin"
     )
