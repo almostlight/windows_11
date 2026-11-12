@@ -54,7 +54,7 @@ if (Test-Path $SetupFunctionsPath) {
     throw "SetupFunctions.ps1 not found at $SetupFunctionsPath"
 }
 
-if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]\
+if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]`
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 
@@ -78,7 +78,7 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]\
         $Shell = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
     }
     
-    $Arguments = '-NoProfile -ExecutionPolicy Bypass -File `'"$ElevatedScript`"'"
+    $Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ElevatedScript`""
     if (-not $Shell) {
         throw 'Could not find PowerShell to run the elevated setup.'
     }
@@ -147,7 +147,7 @@ try {
 
         $InputHandle = [WindowsSetup.ConsoleNative]::GetStdHandle(-10)
         [uint32]$OriginalMode = 0
-        $RestoreConsoleMode = $InputHandle -ne [IntPtr]::Zero -and\
+        $RestoreConsoleMode = $InputHandle -ne [IntPtr]::Zero -and`
             [WindowsSetup.ConsoleNative]::GetConsoleMode($InputHandle, [ref]$OriginalMode)
         
         if ($RestoreConsoleMode) {
@@ -225,12 +225,12 @@ try {
     }
 
     function Restart-ExplorerShell {
-        Get-Process -Name 'explorer' -ErrorAction SilentlyContinue |\
+        Get-Process -Name 'explorer' -ErrorAction SilentlyContinue |`
             ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction Stop }
-        Start-Process \
-            -FilePath (Join-Path $Env:WINDIR 'explorer.exe') \
-            -ArgumentList '/factory' \
-            -WindowStyle Hidden \
+        Start-Process `
+            -FilePath (Join-Path $Env:WINDIR 'explorer.exe') `
+            -ArgumentList '/factory' `
+            -WindowStyle Hidden `
             -ErrorAction Stop | Out-Null
     }
 
@@ -268,20 +268,20 @@ try {
         }
 
         Assert-SetupCheck -Name 'Taskbar controls hidden' -Test {
-            $Advanced = Get-ItemProperty \
-                'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' \
+            $Advanced = Get-ItemProperty `
+                'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' `
                 -ErrorAction Stop
-            $Advanced.SearchboxTaskbarMode -eq 0 -and\
-                $Advanced.TaskbarSearchMode -eq 0 -and\
-                $Advanced.ShowTaskViewButton -eq 0 -and\
-                $Advanced.TaskbarDa -eq 0 -and\
-                $Advanced.TaskbarMn -eq 0 -and\
+            $Advanced.SearchboxTaskbarMode -eq 0 -and`
+                $Advanced.TaskbarSearchMode -eq 0 -and`
+                $Advanced.ShowTaskViewButton -eq 0 -and`
+                $Advanced.TaskbarDa -eq 0 -and`
+                $Advanced.TaskbarMn -eq 0 -and`
                 $Advanced.ShowCopilotButton -eq 0
         }
 
         Assert-SetupCheck -Name 'Polish keyboard layout configured' -Test {
-            $Polish = Get-WinUserLanguageList |\
-                Where-Object LanguageTag -eq 'pl-PL' |\
+            $Polish = Get-WinUserLanguageList |`
+                Where-Object LanguageTag -eq 'pl-PL' |`
                 Select-Object -First 1
             $Null -ne $Polish -and $Polish.InputMethodTips -contains '0415:00000415'
         }
@@ -351,8 +351,8 @@ try {
             [Parameter(Mandatory)]
             [string]$Out
         )
-        Get-File \
-            "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/$RelativePath" \
+        Get-File `
+            "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/$RelativePath" `
             $Out
     }
 
@@ -365,9 +365,9 @@ try {
             [string]$AssetName
         )
 
-        $Release = Invoke-RestMethod \
-            "https://api.github.com/repos/$Repository/releases/latest" \
-            -Headers @{ 'User-Agent' = 'WindowsSetup' } \
+        $Release = Invoke-RestMethod `
+            "https://api.github.com/repos/$Repository/releases/latest" `
+            -Headers @{ 'User-Agent' = 'WindowsSetup' } `
             -ErrorAction Stop
         $Asset = $Release.assets | Where-Object name -eq $AssetName | Select-Object -First 1
         if (-not $Asset) {
@@ -431,23 +431,23 @@ try {
 
         $PersonalizationPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP'
         New-Item -Path $PersonalizationPath -Force | Out-Null
-        New-ItemProperty \
-            -Path $PersonalizationPath \
-            -Name 'LockScreenImagePath' \
-            -Value $TargetLockScreen \
-            -PropertyType String \
+        New-ItemProperty `
+            -Path $PersonalizationPath `
+            -Name 'LockScreenImagePath' `
+            -Value $TargetLockScreen `
+            -PropertyType String `
             -Force | Out-Null
-        New-ItemProperty \
-            -Path $PersonalizationPath \
-            -Name 'LockScreenImageUrl' \
-            -Value $TargetLockScreen \
-            -PropertyType String \
+        New-ItemProperty `
+            -Path $PersonalizationPath `
+            -Name 'LockScreenImageUrl' `
+            -Value $TargetLockScreen `
+            -PropertyType String `
             -Force | Out-Null
-        New-ItemProperty \
-            -Path $PersonalizationPath \
-            -Name 'LockScreenImageStatus' \
-            -Value 1 \
-            -PropertyType DWord \
+        New-ItemProperty `
+            -Path $PersonalizationPath `
+            -Name 'LockScreenImageStatus' `
+            -Value 1 `
+            -PropertyType DWord `
             -Force | Out-Null
 
         Write-SetupLog -Msg "Set lock screen image to $TargetLockScreen"
@@ -473,11 +473,11 @@ try {
                 default { 'TrueType' }
             }
             $FontDisplayName = "$([IO.Path]::GetFileNameWithoutExtension($FontFile.Name)) ($FontType)"
-            New-ItemProperty \
-                -Path $FontRegistryPath \
-                -Name $FontDisplayName \
-                -Value $FontFile.Name \
-                -PropertyType String \
+            New-ItemProperty `
+                -Path $FontRegistryPath `
+                -Name $FontDisplayName `
+                -Value $FontFile.Name `
+                -PropertyType String `
                 -Force | Out-Null
         }
     }
@@ -514,8 +514,8 @@ try {
                 $Defaults = "`n            `"font`": { `"face`": `"FiraCode Nerd Font Mono`" }," + $Defaults
             }
 
-            $Settings = $Settings.Substring(0, $DefaultsMatch.Groups[2].Index) +\
-                $Defaults +\
+            $Settings = $Settings.Substring(0, $DefaultsMatch.Groups[2].Index) +`
+                $Defaults +`
                 $Settings.Substring($DefaultsMatch.Groups[2].Index + $DefaultsMatch.Groups[2].Length)
             Set-Content $SettingsPath $Settings -Encoding utf8
             Write-SetupLog -Msg "Set Windows Terminal default font to FiraCode Nerd Font Mono in $SettingsPath"
@@ -560,8 +560,8 @@ try {
             [Parameter(Mandatory)]
             [string]$Id
         )
-        $Installed = $Null | & winget list --exact --id $Id \
-            --accept-source-agreements --disable-interactivity 2>&1 |\
+        $Installed = $Null | & winget list --exact --id $Id `
+            --accept-source-agreements --disable-interactivity 2>&1 |`
             Out-String
         if ($Installed -match '(?im)\b$([regex]::Escape($Id))\b') {
             Write-SetupLog -Msg "Skipping already installed package $Id"
@@ -578,8 +578,8 @@ try {
     Write-SetupLog -Msg 'Collecting user preferences...'
 
     $InstallAllRecommendedPackages = $False
-    $Response = Read-TimedChoice \
-        'Install all recommended packages? [y/N] (Choosing N installs only strictly necessary packages)' \
+    $Response = Read-TimedChoice `
+        'Install all recommended packages? [y/N] (Choosing N installs only strictly necessary packages)' `
         'n'
     if ($Response -eq 'y') {
         $InstallAllRecommendedPackages = $True
@@ -623,18 +623,18 @@ try {
         Expand-Archive $FiraCodeArchive $FiraCodeDirectory -Force
 
         New-Item -ItemType Directory -Force -Path $BaiJamjureeDirectory | Out-Null
-        $BaiJamjureeAssets = Invoke-RestMethod \
-            'https://api.github.com/repos/google/fonts/contents/ofl/baijamjuree' \
-            -Headers @{ 'User-Agent' = 'WindowsSetup' } |\
+        $BaiJamjureeAssets = Invoke-RestMethod `
+            'https://api.github.com/repos/google/fonts/contents/ofl/baijamjuree' `
+            -Headers @{ 'User-Agent' = 'WindowsSetup' } |`
             Where-Object { $_.Name -match '\.(ttf|otf)$' }
         foreach ($Asset in $BaiJamjureeAssets) {
-            Get-File -Url "https://raw.githubusercontent.com/google/fonts/main/ofl/baijamjuree/$($Asset.Name)" \
+            Get-File -Url "https://raw.githubusercontent.com/google/fonts/main/ofl/baijamjuree/$($Asset.Name)" `
                 -Out (Join-Path $BaiJamjureeDirectory $Asset.Name)
         }
 
-        $FiraCodeFiles = Get-ChildItem $FiraCodeDirectory -Recurse -File |\
+        $FiraCodeFiles = Get-ChildItem $FiraCodeDirectory -Recurse -File |`
             Where-Object { $_.Name -like 'FiraCodeNerdFont*.ttf' }
-        $BaiJamjureeFiles = Get-ChildItem $BaiJamjureeDirectory -Recurse -File |\
+        $BaiJamjureeFiles = Get-ChildItem $BaiJamjureeDirectory -Recurse -File |`
             Where-Object { $_.Extension -in @('.ttf', '.otf') }
 
         if (-not $FiraCodeFiles) {
@@ -648,11 +648,11 @@ try {
 
         $FontSubstitutesPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontSubstitutes'
         New-Item -Path $FontSubstitutesPath -Force | Out-Null
-        New-ItemProperty \
-            -Path $FontSubstitutesPath \
-            -Name 'Segoe UI' \
-            -Value 'FiraCode Nerd Font' \
-            -PropertyType String \
+        New-ItemProperty `
+            -Path $FontSubstitutesPath `
+            -Name 'Segoe UI' `
+            -Value 'FiraCode Nerd Font' `
+            -PropertyType String `
             -Force | Out-Null
 
         Write-SetupLog -Msg 'Installed FiraCode NF, FiraCode Mono NF, and Bai Jamjuree system-wide'
@@ -674,8 +674,8 @@ try {
 
         Get-RawRepositoryFile -RelativePath 'Windows/winget-packages.txt' -Out $PackageList
 
-        $AllRecommendedPackages = Get-Content $PackageList |\
-            ForEach-Object { $_.Trim() } |\
+        $AllRecommendedPackages = Get-Content $PackageList |`
+            ForEach-Object { $_.Trim() } |`
             Where-Object { $_ -and -not $_.StartsWith('#') }
 
         $PackagesToInstall = if ($InstallAllRecommendedPackages) {
@@ -864,7 +864,7 @@ try {
             
             New-Item -ItemType Directory -Force -Path (Split-Path $Target) | Out-Null
             
-            if ($RelativePath -eq 'scripts\windows-startup.ps1' -and\
+            if ($RelativePath -eq 'scripts\windows-startup.ps1' -and`
                 (Test-Path (Join-Path $Env:TEMP 'windows-setup-startup.ps1'))) {
                 $TargetItem = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
                 if ($TargetItem) {
@@ -907,45 +907,45 @@ try {
 
         $StartupTaskName = 'Graphical Environment Startup'
         $PowerShellPath = Join-Path $Env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $TaskAction = New-ScheduledTaskAction \
-            -Execute $PowerShellPath \
+        $TaskAction = New-ScheduledTaskAction `
+            -Execute $PowerShellPath `
             -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$StartupScript`""
         $TaskTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$Env:USERDOMAIN\$Env:USERNAME"
-        $TaskPrincipal = New-ScheduledTaskPrincipal \
-            -UserId "$Env:USERDOMAIN\$Env:USERNAME" \
-            -LogonType Interactive \
+        $TaskPrincipal = New-ScheduledTaskPrincipal `
+            -UserId "$Env:USERDOMAIN\$Env:USERNAME" `
+            -LogonType Interactive `
             -RunLevel Highest
-        $TaskSettings = New-ScheduledTaskSettingsSet \
-            -Priority 0 \
-            -AllowStartIfOnBatteries \
+        $TaskSettings = New-ScheduledTaskSettingsSet `
+            -Priority 0 `
+            -AllowStartIfOnBatteries `
             -DontStopIfGoingOnBatteries
-        Register-ScheduledTask \
-            -TaskName $StartupTaskName \
-            -Action $TaskAction \
-            -Trigger $TaskTrigger \
-            -Principal $TaskPrincipal \
-            -Settings $TaskSettings \
+        Register-ScheduledTask `
+            -TaskName $StartupTaskName `
+            -Action $TaskAction `
+            -Trigger $TaskTrigger `
+            -Principal $TaskPrincipal `
+            -Settings $TaskSettings `
             -Force | Out-Null
         Write-SetupLog -Msg 'Configured scheduled startup task'
 
         $WatchdogTaskName = 'Komorebi Process Watchdog'
-        $WatchdogAction = New-ScheduledTaskAction \
-            -Execute $PowerShellPath \
+        $WatchdogAction = New-ScheduledTaskAction `
+            -Execute $PowerShellPath `
             -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$StartupScript`" -BarWatchdog"
         $WatchdogTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$Env:USERDOMAIN\$Env:USERNAME"
-        $WatchdogSettings = New-ScheduledTaskSettingsSet \
-            -RestartCount 999 \
-            -RestartInterval (New-TimeSpan -Minutes 1) \
-            -ExecutionTimeLimit ([TimeSpan]::Zero) \
-            -StartWhenAvailable \
-            -AllowStartIfOnBatteries \
+        $WatchdogSettings = New-ScheduledTaskSettingsSet `
+            -RestartCount 999 `
+            -RestartInterval (New-TimeSpan -Minutes 1) `
+            -ExecutionTimeLimit ([TimeSpan]::Zero) `
+            -StartWhenAvailable `
+            -AllowStartIfOnBatteries `
             -DontStopIfGoingOnBatteries
-        Register-ScheduledTask \
-            -TaskName $WatchdogTaskName \
-            -Action $WatchdogAction \
-            -Trigger $WatchdogTrigger \
-            -Principal $TaskPrincipal \
-            -Settings $WatchdogSettings \
+        Register-ScheduledTask `
+            -TaskName $WatchdogTaskName `
+            -Action $WatchdogAction `
+            -Trigger $WatchdogTrigger `
+            -Principal $TaskPrincipal `
+            -Settings $WatchdogSettings `
             -Force | Out-Null
         Start-ScheduledTask -TaskName $WatchdogTaskName
         Write-SetupLog -Msg 'Configured Komorebi process watchdog task'
@@ -968,7 +968,7 @@ try {
     Write-Phase -Name 'System and desktop settings'
 
     Invoke-Step -Name 'rdp' -ScriptBlock {
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' \
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
             -Name 'fDenyTSConnections' -Value 0
         Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
     }
@@ -1004,11 +1004,11 @@ try {
 
         $LegacyContextMenuPath = 'HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
         New-Item -Path $LegacyContextMenuPath -Force | Out-Null
-        New-ItemProperty \
-            -Path $LegacyContextMenuPath \
-            -Name '(default)' \
-            -Value '' \
-            -PropertyType String \
+        New-ItemProperty `
+            -Path $LegacyContextMenuPath `
+            -Name '(default)' `
+            -Value '' `
+            -PropertyType String `
             -Force | Out-Null
 
         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'WindowArrangementActive' -Value 0 -Type DWord
@@ -1033,7 +1033,7 @@ try {
         $HadPins = $Null -ne $Taskband
         if ($HadPins) {
             $PropertyNames = $Taskband.PSObject.Properties.Name
-            $HadPins = ($PropertyNames -contains 'Favorites') -or\
+            $HadPins = ($PropertyNames -contains 'Favorites') -or`
                 ($PropertyNames -contains 'FavoritesResolve')
         }
 
@@ -1084,9 +1084,9 @@ try {
         )
 
         foreach ($TaskDefinition in $TasksToDisable) {
-            $Task = Get-ScheduledTask \
-                -TaskPath $TaskDefinition.Path \
-                -TaskName $TaskDefinition.Name \
+            $Task = Get-ScheduledTask `
+                -TaskPath $TaskDefinition.Path `
+                -TaskName $TaskDefinition.Name `
                 -ErrorAction SilentlyContinue
             if (-not $Task) {
                 Write-SetupLog -Msg "Scheduled task not present, skipping: $($TaskDefinition.Path)$($TaskDefinition.Name)"
@@ -1098,9 +1098,9 @@ try {
                 continue
             }
 
-            Disable-ScheduledTask \
-                -TaskPath $TaskDefinition.Path \
-                -TaskName $TaskDefinition.Name \
+            Disable-ScheduledTask `
+                -TaskPath $TaskDefinition.Path `
+                -TaskName $TaskDefinition.Name `
                 -ErrorAction Stop | Out-Null
             Write-SetupLog -Msg "Disabled scheduled task: $($TaskDefinition.Path)$($TaskDefinition.Name)"
         }

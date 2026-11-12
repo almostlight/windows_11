@@ -44,7 +44,7 @@ $ModuleRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path $MyInvocati
 . (Join-Path $ModuleRoot 'SetupFunctions.ps1')
 
 # --- Self-elevation ---
-if (-not ([Security.Principal.WindowsPrincipal]\
+if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 
@@ -60,7 +60,7 @@ if (-not ([Security.Principal.WindowsPrincipal]\
         $Shell = (Get-Command powershell.exe).Source
     }
     
-    $Arguments = '-NoProfile -ExecutionPolicy Bypass -File `'"$ElevatedScript`"'"
+    $Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ElevatedScript`""
     if ($WhatIf) {
         $Arguments += ' -WhatIf'
     }
@@ -145,7 +145,7 @@ function Install-Package {
         [string]$Id
     )
 
-    $Installed = & winget list --exact --id $Id \
+    $Installed = & winget list --exact --id $Id `
         --accept-source-agreements --disable-interactivity 2>&1 | Out-String
     if ($Installed -match '(?im)\b$([regex]::Escape($Id))\b') {
         Write-Log -Msg "Skipping already installed package $Id"
@@ -153,8 +153,8 @@ function Install-Package {
     }
 
     Write-Log -Msg "Installing $Id"
-    & winget install -e --id $Id --silent \
-        --accept-package-agreements --accept-source-agreements \
+    & winget install -e --id $Id --silent `
+        --accept-package-agreements --accept-source-agreements `
         --disable-interactivity
     if ($LASTEXITCODE -ne 0) {
         throw "Winget failed for $Id with exit code $LASTEXITCODE"
@@ -174,8 +174,8 @@ function Get-LatestGitHubRelease {
     $Release = Invoke-RestMethod -Uri $Api -Headers @{
         'User-Agent' = 'PowerShell'
     }
-    $Asset = $Release.Assets |\
-        Where-Object { $_.Name -like $AssetPattern } |\
+    $Asset = $Release.Assets |`
+        Where-Object { $_.Name -like $AssetPattern } |`
         Select-Object -First 1
 
     if (-not $Asset) {
@@ -207,7 +207,7 @@ Run-Step -Name 'virtio' -ScriptBlock {
 Run-Step -Name 'lookingglass' -ScriptBlock {
     $LgDir = Join-Path $Downloads 'lg'
     $Existing = if (Test-Path $LgDir) {
-        Get-ChildItem $LgDir -Recurse -Filter 'looking-glass-host-setup.exe' |\
+        Get-ChildItem $LgDir -Recurse -Filter 'looking-glass-host-setup.exe' |`
             Select-Object -First 1
     }
 
@@ -221,7 +221,7 @@ Run-Step -Name 'lookingglass' -ScriptBlock {
     Get-File -Url 'https://looking-glass.io/artifact/stable/host' -Out $Zip
     Expand-Archive $Zip $LgDir -Force
 
-    $Exe = Get-ChildItem $LgDir -Recurse -Filter 'looking-glass-host-setup.exe' |\
+    $Exe = Get-ChildItem $LgDir -Recurse -Filter 'looking-glass-host-setup.exe' |`
         Select-Object -First 1
     if ($Exe) {
         Start-Process $Exe.FullName -Wait
@@ -230,7 +230,7 @@ Run-Step -Name 'lookingglass' -ScriptBlock {
 
 Run-Step -Name 'vdd' -ScriptBlock {
     $VddInstallPath = 'C:\Program Files\VDD_Control'
-    $VddExe = Get-ChildItem $VddInstallPath -Recurse -Filter 'VDD Control.exe' \
+    $VddExe = Get-ChildItem $VddInstallPath -Recurse -Filter 'VDD Control.exe' `
         -ErrorAction SilentlyContinue | Select-Object -First 1
 
     if ($VddExe) {
@@ -239,15 +239,15 @@ Run-Step -Name 'vdd' -ScriptBlock {
     }
 
     New-Item $VddInstallPath -ItemType Directory -Force | Out-Null
-    $VddUrl = Get-LatestGitHubRelease \
-        -Repo 'VirtualDrivers/Virtual-Display-Driver' \
+    $VddUrl = Get-LatestGitHubRelease `
+        -Repo 'VirtualDrivers/Virtual-Display-Driver' `
         -AssetPattern 'VDD.Control.*.zip'
     $Zip = Join-Path $Env:TEMP 'vdd.zip'
     Invoke-WebRequest $VddUrl -OutFile $Zip
     Expand-Archive $Zip $VddInstallPath -Force
     Remove-Item $Zip -Force
 
-    $Exe = Get-ChildItem $VddInstallPath -Recurse -Filter 'VDD Control.exe' |\
+    $Exe = Get-ChildItem $VddInstallPath -Recurse -Filter 'VDD Control.exe' |`
         Select-Object -First 1
     if ($Exe) {
         Start-Process $Exe.FullName
