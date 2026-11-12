@@ -49,10 +49,16 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal] `
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 
     $ElevatedScript = Join-Path $Env:TEMP "vm-setup-$PID.ps1"
+    $ElevatedFunctionsScript = Join-Path $Env:TEMP 'SetupFunctions.ps1'
     if ($PSCommandPath -and (Test-Path $PSCommandPath -PathType Leaf)) {
         Copy-Item $PSCommandPath $ElevatedScript -Force
+        $SetupFunctionsSource = Join-Path $PSScriptRoot 'SetupFunctions.ps1'
+        if (Test-Path $SetupFunctionsSource -PathType Leaf) {
+            Copy-Item $SetupFunctionsSource $ElevatedFunctionsScript -Force
+        }
     } else {
         Invoke-WebRequest $ScriptUrl -OutFile $ElevatedScript -UseBasicParsing
+        Get-RawRepositoryFile -RelativePath 'Windows/SetupFunctions.ps1' -Out $ElevatedFunctionsScript
     }
 
     $Shell = (Get-Command pwsh -ErrorAction SilentlyContinue).Source

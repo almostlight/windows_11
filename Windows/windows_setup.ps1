@@ -63,14 +63,20 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]`
         Join-Path $PSScriptRoot 'home\scripts\windows-startup.ps1'
     }
     $ElevatedStartupScript = Join-Path $Env:TEMP 'windows-setup-startup.ps1'
+    $ElevatedFunctionsScript = Join-Path $Env:TEMP 'SetupFunctions.ps1'
     
     if ($PSCommandPath -and (Test-Path $PSCommandPath -PathType Leaf)) {
         Copy-Item $PSCommandPath $ElevatedScript -Force
         if (Test-Path $LocalStartupScript -PathType Leaf) {
             Copy-Item $LocalStartupScript $ElevatedStartupScript -Force
         }
+        $SetupFunctionsSource = Join-Path $PSScriptRoot 'SetupFunctions.ps1'
+        if (Test-Path $SetupFunctionsSource -PathType Leaf) {
+            Copy-Item $SetupFunctionsSource $ElevatedFunctionsScript -Force
+        }
     } else {
         Invoke-WebRequest $ScriptUrl -OutFile $ElevatedScript -UseBasicParsing
+        Get-RawRepositoryFile -RelativePath 'Windows/SetupFunctions.ps1' -Out $ElevatedFunctionsScript
     }
 
     $Shell = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
