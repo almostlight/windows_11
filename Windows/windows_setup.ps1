@@ -638,8 +638,8 @@ Invoke-Step "msys2-setup" {
         return
     }
     
-    Write-SetupLog "Installing base-devel and mingw-w64-ucrt-x86_64-toolchain via pacman..."
-    $pacmanArgs = "-S --needed --noconfirm base-devel mingw-w64-ucrt-x86_64-toolchain"
+    Write-SetupLog "Installing base-devel, mingw-w64-ucrt-x86_64-toolchain, gcc, g++, gdb via pacman..."
+    $pacmanArgs = "-S --needed --noconfirm base-devel mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gdb"
     $process = Start-Process -FilePath $pacmanPath -ArgumentList $pacmanArgs -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -ne 0) {
         Write-SetupLog "pacman installation failed with exit code $($process.ExitCode)" "WARN"
