@@ -1,188 +1,257 @@
-# VM-specific Windows setup for GPU passthrough guests.
-param(
+<#
+.SYNOPSIS
+    VM-specific Windows setup for GPU passthrough guests.
+
+.DESCRIPTION
+    This script performs VM-specific setup including:
+    - Winget installation
+    - Package installation (WinFsp)
+    - VirtIO drivers installation
+    - Looking Glass installation
+    - Virtual Display Driver (VDD) installation
+    - Display Driver Uninstaller (DDU) download
+
+.PARAMETER WhatIf
+    If specified, shows what would be done without making any changes.
+
+.EXAMPLE
+    .\windows_setup_vm.ps1
+    Runs the VM-specific Windows setup.
+
+.EXAMPLE
+    .\windows_setup_vm.ps1 -WhatIf
+    Shows what would be configured without making changes.
+
+.NOTES
+    File Name: windows_setup_vm.ps1
+    Author: AlmostLight
+    License: As-is
+    
+    The script requires administrator privileges and will self-elevate if needed.
+    Logs are written to %USERPROFILE%\scripts\vm-setup.<timestamp>.log
+#>
+
+[CmdletBinding()]
+param (
     [switch]$WhatIf
 )
 
-$ErrorActionPreference = "Stop"
-$ScriptUrl = "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup_vm.ps1"
+$ErrorActionPreference = 'Stop'
+$ScriptUrl = 'https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/windows_setup_vm.ps1'
 
-# --- Self-elevation ---
-if (-not ([Security.Principal.WindowsPrincipal] `
+if (-not ([Security.Principal.WindowsPrincipal]\
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 
-    $elevatedScript = Join-Path $env:TEMP "vm-setup-$PID.ps1"
+    $ElevatedScript = Join-Path $Env:TEMP "vm-setup-$PID.ps1"
     if ($PSCommandPath -and (Test-Path $PSCommandPath -PathType Leaf)) {
-        Copy-Item $PSCommandPath $elevatedScript -Force
+        Copy-Item $PSCommandPath $ElevatedScript -Force
     } else {
-        Invoke-WebRequest $ScriptUrl -OutFile $elevatedScript -UseBasicParsing
+        Invoke-WebRequest $ScriptUrl -OutFile $ElevatedScript -UseBasicParsing
     }
 
-    $shell = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-    if (-not $shell) { $shell = (Get-Command powershell.exe).Source }
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$elevatedScript`""
-    if ($WhatIf) { $arguments += " -WhatIf" }
-    $process = Start-Process $shell -ArgumentList $arguments -Verb RunAs -Wait -PassThru
-    Remove-Item $elevatedScript -Force -ErrorAction SilentlyContinue
-    exit $process.ExitCode
+    $Shell = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if (-not $Shell) {
+        $Shell = (Get-Command powershell.exe).Source
+    }
+    
+    $Arguments = '-NoProfile -ExecutionPolicy Bypass -File `'"$ElevatedScript`"'"
+    if ($WhatIf) {
+        $Arguments += ' -WhatIf'
+    }
+    
+    $Process = Start-Process $Shell -ArgumentList $Arguments -Verb RunAs -Wait -PassThru
+    Remove-Item $ElevatedScript -Force -ErrorAction SilentlyContinue
+    exit $Process.ExitCode
 }
 
-# --- Core paths ---
-$date = Get-Date -Format "yyyy-MM-dd_HH_mm_ss"
-$BasePath = [Environment]::GetFolderPath("UserProfile")
-$Downloads = Join-Path $BasePath "Downloads"
-$ScriptsPath = Join-Path $BasePath "scripts"
-$LogPath = Join-Path $ScriptsPath "vm-setup.$date.log"
+$Date = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+$BasePath = [Environment]::GetFolderPath('UserProfile')
+$Downloads = Join-Path $BasePath 'Downloads'
+$ScriptsPath = Join-Path $BasePath 'scripts'
+$LogPath = Join-Path $ScriptsPath "vm-setup.$(Get-Date -Format 'yyyy-MM-dd_HH_mm_ss').log"
 
 New-Item -ItemType Directory -Force -Path $Downloads, $ScriptsPath | Out-Null
 
-# --- Logging ---
 function Write-Log {
-    param($Msg, $Type="INFO")
-    $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')][$Type] $Msg"
-    Write-Host $line
-    Add-Content $LogPath $line
+    param (
+        [string]$Msg,
+        [string]$Type = 'INFO'
+    )
+
+    $Line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')][$Type] $Msg"
+    Write-Host $Line
+    Add-Content -Path $LogPath -Value $Line
 }
 
-Write-Log "Starting VM provisioning"
+Write-Log -Msg 'Starting VM provisioning'
 
-function Run-Step($Name, $ScriptBlock) {
-    Write-Log "RUN: $Name"
+function Run-Step {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]$Name,
+        [Parameter(Mandatory)]
+        [ScriptBlock]$ScriptBlock
+    )
 
-    if ($WhatIf) { return }
+    Write-Log -Msg "RUN: $Name"
+
+    if ($WhatIf) {
+        return
+    }
 
     try {
         & $ScriptBlock
     } catch {
-        Write-Log "FAILED: $Name - $_" "ERROR"
+        Write-Log -Msg "FAILED: $Name - $_" -Type 'ERROR'
     }
 }
 
-function Get-File($Url, $Out) {
-    if (Test-Path $Out) { return }
+function Get-File {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]$Url,
+        [Parameter(Mandatory)]
+        [string]$Out
+    )
 
-    for ($i = 0; $i -lt 3; $i++) {
+    if (Test-Path $Out) {
+        return
+    }
+
+    for ($I = 0; $I -lt 3; $I++) {
         try {
             Invoke-WebRequest $Url -OutFile $Out -TimeoutSec 60
             return
         } catch {
-            Start-Sleep 2
+            Start-Sleep -Seconds 2
         }
     }
 
     throw "Download failed: $Url"
 }
 
-function Install-Package($id) {
-    $installed = & winget list --exact --id $id `
+function Install-Package {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]$Id
+    )
+
+    $Installed = & winget list --exact --id $Id \
         --accept-source-agreements --disable-interactivity 2>&1 | Out-String
-    if ($installed -match "(?im)\b$([regex]::Escape($id))\b") {
-        Write-Log "Skipping already installed package $id"
+    if ($Installed -match '(?im)\b$([regex]::Escape($Id))\b') {
+        Write-Log -Msg "Skipping already installed package $Id"
         return
     }
 
-    Write-Log "Installing $id"
-    & winget install -e --id $id --silent `
-        --accept-package-agreements --accept-source-agreements `
+    Write-Log -Msg "Installing $Id"
+    & winget install -e --id $Id --silent \
+        --accept-package-agreements --accept-source-agreements \
         --disable-interactivity
     if ($LASTEXITCODE -ne 0) {
-        throw "Winget failed for $id with exit code $LASTEXITCODE"
+        throw "Winget failed for $Id with exit code $LASTEXITCODE"
     }
 }
 
 function Get-LatestGitHubRelease {
-    param(
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
         [string]$Repo,
+        [Parameter(Mandatory)]
         [string]$AssetPattern
     )
 
-    $api = "https://api.github.com/repos/$Repo/releases/latest"
-    $release = Invoke-RestMethod -Uri $api -Headers @{
-        "User-Agent" = "PowerShell"
+    $Api = "https://api.github.com/repos/$Repo/releases/latest"
+    $Release = Invoke-RestMethod -Uri $Api -Headers @{
+        'User-Agent' = 'PowerShell'
     }
-    $asset = $release.assets |
-        Where-Object { $_.name -like $AssetPattern } |
+    $Asset = $Release.Assets |\
+        Where-Object { $_.Name -like $AssetPattern } |\
         Select-Object -First 1
 
-    if (-not $asset) {
+    if (-not $Asset) {
         throw "No asset matching $AssetPattern in $Repo"
     }
 
-    return $asset.browser_download_url
+    return $Asset.Browser_download_url
 }
 
-Run-Step "winget" {
+Run-Step -Name 'winget' -ScriptBlock {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        $pkg = Join-Path $Downloads "winget.msixbundle"
-        Get-File "https://aka.ms/getwinget" $pkg
-        Add-AppxPackage $pkg
-        Start-Sleep 5
+        $Pkg = Join-Path $Downloads 'winget.msixbundle'
+        Get-File -Url 'https://aka.ms/getwinget' -Out $Pkg
+        Add-AppxPackage $Pkg
+        Start-Sleep -Seconds 5
     }
 }
 
-Run-Step "packages" {
-    Install-Package "WinFsp.WinFsp"
+Run-Step -Name 'packages' -ScriptBlock {
+    Install-Package -Id 'WinFsp.WinFsp'
 }
 
-Run-Step "virtio" {
-    $file = Join-Path $Downloads "virtio.exe"
-    Get-File "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio/virtio-win-guest-tools.exe" $file
-    Start-Process $file -ArgumentList "/quiet" -Wait
+Run-Step -Name 'virtio' -ScriptBlock {
+    $File = Join-Path $Downloads 'virtio.exe'
+    Get-File -Url 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio/virtio-win-guest-tools.exe' -Out $File
+    Start-Process $File -ArgumentList '/quiet' -Wait
 }
 
-Run-Step "lookingglass" {
-    $lgDir = Join-Path $Downloads "lg"
-    $existing = if (Test-Path $lgDir) {
-        Get-ChildItem $lgDir -Recurse -Filter "looking-glass-host-setup.exe" |
+Run-Step -Name 'lookingglass' -ScriptBlock {
+    $LgDir = Join-Path $Downloads 'lg'
+    $Existing = if (Test-Path $LgDir) {
+        Get-ChildItem $LgDir -Recurse -Filter 'looking-glass-host-setup.exe' |\
             Select-Object -First 1
     }
 
-    if ($existing) {
-        Write-Log "Looking Glass already extracted/available, skipping download" "SUCCESS"
-        Start-Process $existing.FullName -Wait
+    if ($Existing) {
+        Write-Log -Msg 'Looking Glass already extracted/available, skipping download' -Type 'SUCCESS'
+        Start-Process $Existing.FullName -Wait
         return
     }
 
-    $zip = Join-Path $Downloads "lg.zip"
-    Get-File "https://looking-glass.io/artifact/stable/host" $zip
-    Expand-Archive $zip $lgDir -Force
+    $Zip = Join-Path $Downloads 'lg.zip'
+    Get-File -Url 'https://looking-glass.io/artifact/stable/host' -Out $Zip
+    Expand-Archive $Zip $LgDir -Force
 
-    $exe = Get-ChildItem $lgDir -Recurse -Filter "looking-glass-host-setup.exe" |
+    $Exe = Get-ChildItem $LgDir -Recurse -Filter 'looking-glass-host-setup.exe' |\
         Select-Object -First 1
-    if ($exe) { Start-Process $exe.FullName -Wait }
+    if ($Exe) {
+        Start-Process $Exe.FullName -Wait
+    }
 }
 
-Run-Step "vdd" {
-    $vddInstallPath = "C:\Program Files\VDD_Control"
-    $vddExe = Get-ChildItem $vddInstallPath -Recurse -Filter "VDD Control.exe" `
+Run-Step -Name 'vdd' -ScriptBlock {
+    $VddInstallPath = 'C:\Program Files\VDD_Control'
+    $VddExe = Get-ChildItem $VddInstallPath -Recurse -Filter 'VDD Control.exe' \
         -ErrorAction SilentlyContinue | Select-Object -First 1
 
-    if ($vddExe) {
-        Write-Log "VDD already installed at $($vddExe.FullName), skipping download/install" "SUCCESS"
+    if ($VddExe) {
+        Write-Log -Msg "VDD already installed at $($VddExe.FullName), skipping download/install" -Type 'SUCCESS'
         return
     }
 
-    New-Item $vddInstallPath -ItemType Directory -Force | Out-Null
-    $vddUrl = Get-LatestGitHubRelease `
-        -Repo "VirtualDrivers/Virtual-Display-Driver" `
-        -AssetPattern "VDD.Control.*.zip"
-    $zip = Join-Path $env:TEMP "vdd.zip"
-    Invoke-WebRequest $vddUrl -OutFile $zip
-    Expand-Archive $zip $vddInstallPath -Force
-    Remove-Item $zip -Force
+    New-Item $VddInstallPath -ItemType Directory -Force | Out-Null
+    $VddUrl = Get-LatestGitHubRelease \
+        -Repo 'VirtualDrivers/Virtual-Display-Driver' \
+        -AssetPattern 'VDD.Control.*.zip'
+    $Zip = Join-Path $Env:TEMP 'vdd.zip'
+    Invoke-WebRequest $VddUrl -OutFile $Zip
+    Expand-Archive $Zip $VddInstallPath -Force
+    Remove-Item $Zip -Force
 
-    $exe = Get-ChildItem $vddInstallPath -Recurse -Filter "VDD Control.exe" |
+    $Exe = Get-ChildItem $VddInstallPath -Recurse -Filter 'VDD Control.exe' |\
         Select-Object -First 1
-    if ($exe) { Start-Process $exe.FullName }
+    if ($Exe) {
+        Start-Process $Exe.FullName
+    }
 }
 
-# =========================
-# DDU
-# =========================
-
-Run-Step "ddu" {
-    $path = Join-Path $Downloads "DDU.exe"
-    Invoke-WebRequest "https://www.wagnardsoft.com/DDU/download/DDU%20v18.0.8.5.exe" -OutFile $path
+Run-Step -Name 'ddu' -ScriptBlock {
+    $Path = Join-Path $Downloads 'DDU.exe'
+    Invoke-WebRequest 'https://www.wagnardsoft.com/DDU/download/DDU%20v18.0.8.5.exe' -OutFile $Path
 }
 
-Write-Log "VM provisioning complete"
+Write-Log -Msg 'VM provisioning complete'
