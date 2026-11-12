@@ -696,32 +696,14 @@ Invoke-Step "msys2-setup" {
 
 Invoke-Step "dotfiles-vimrc" {
     $vimrcSource = Join-Path $BasePath ".vimrc"
-    $dotfilesRepo = Join-Path $BasePath ".dotfiles"
-    $dotfilesVimrc = Join-Path $dotfilesRepo "home\headless\rc\.vimrc"
+    $vimrcUrl = "https://raw.githubusercontent.com/almostlight/dotfiles/main/home/headless/rc/.vimrc"
     
     if (Test-Path $vimrcSource) {
         Write-SetupLog "vimrc already exists at $vimrcSource"
     } else {
-        Write-SetupLog "Cloning dotfiles repository to get .vimrc..."
-        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-            Write-SetupLog "Git not available, cannot clone dotfiles" "WARN"
-            return
-        }
-        
-        if (-not (Test-Path $dotfilesRepo)) {
-            & git clone https://github.com/almostlight/dotfiles.git $dotfilesRepo --depth 1
-            if ($LASTEXITCODE -ne 0) {
-                Write-SetupLog "Failed to clone dotfiles repository" "WARN"
-                return
-            }
-        }
-        
-        if (Test-Path $dotfilesVimrc) {
-            Copy-Item $dotfilesVimrc $vimrcSource -Force
-            Write-SetupLog "Copied .vimrc from dotfiles to $vimrcSource" "SUCCESS"
-        } else {
-            Write-SetupLog "vimrc not found in dotfiles repository at $dotfilesVimrc" "WARN"
-        }
+        Write-SetupLog "Downloading .vimrc from dotfiles..."
+        Get-File $vimrcUrl $vimrcSource
+        Write-SetupLog "Downloaded .vimrc to $vimrcSource" "SUCCESS"
     }
 }
 
