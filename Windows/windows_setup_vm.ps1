@@ -66,11 +66,6 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal] `
     }
     
 
-    # Skip elevation in non-interactive sessions
-    if ([Console]::IsInputRedirected) {
-        Write-Host "ERROR: Administrator privileges required. Run this script from an interactive PowerShell session." -ForegroundColor Red
-        exit 1
-    }
     $Process = Start-Process $Shell -ArgumentList $Arguments -Verb RunAs -Wait -PassThru
     Remove-Item $ElevatedScript -Force -ErrorAction SilentlyContinue
     exit $Process.ExitCode
