@@ -38,6 +38,7 @@ Microsoft.VisualStudioCode
 Microsoft.WSL
 # Microsoft.WindowsTerminal
 Mozilla.Firefox
+MSYS2.MSYS2
 Nextcloud.NextcloudDesktop
 Ninja-build.Ninja
 # NordSecurity.NordVPN
