@@ -64,6 +64,7 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]`
     }
     $ElevatedStartupScript = Join-Path $Env:TEMP 'windows-setup-startup.ps1'
     $ElevatedFunctionsScript = Join-Path $Env:TEMP 'SetupFunctions.ps1'
+    $ElevatedMsys2Script = Join-Path $Env:TEMP 'msys2_setup.ps1'
     
     if ($PSCommandPath -and (Test-Path $PSCommandPath -PathType Leaf)) {
         Copy-Item $PSCommandPath $ElevatedScript -Force
@@ -74,9 +75,14 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]`
         if (Test-Path $SetupFunctionsSource -PathType Leaf) {
             Copy-Item $SetupFunctionsSource $ElevatedFunctionsScript -Force
         }
+        $Msys2SetupSource = Join-Path $PSScriptRoot 'msys2_setup.ps1'
+        if (Test-Path $Msys2SetupSource -PathType Leaf) {
+            Copy-Item $Msys2SetupSource $ElevatedMsys2Script -Force
+        }
     } else {
         Invoke-WebRequest $ScriptUrl -OutFile $ElevatedScript -UseBasicParsing
         Get-RawRepositoryFile -RelativePath 'Windows/SetupFunctions.ps1' -Out $ElevatedFunctionsScript
+        Get-RawRepositoryFile -RelativePath 'Windows/msys2_setup.ps1' -Out $ElevatedMsys2Script
     }
 
     $Shell = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
@@ -271,26 +277,39 @@ try {
         }
 
         Assert-SetupCheck -Name 'Input method indicator hidden' -Test {
-            (Get-ItemPropertyValue 'HKCU:\Control Panel\Input Method' -Name 'ShowStatus' -ErrorAction Stop) -eq 2
+            try {
+                $ShowStatus = Get-ItemPropertyValue 'HKCU:\Control Panel\Input Method' -Name 'ShowStatus' -ErrorAction Stop
+                return $ShowStatus -eq 2
+            } catch {
+                return $False
+            }
         }
 
         Assert-SetupCheck -Name 'Taskbar controls hidden' -Test {
-            $Advanced = Get-ItemProperty `
-                'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' `
-                -ErrorAction Stop
-            $Advanced.SearchboxTaskbarMode -eq 0 -and`
-                $Advanced.TaskbarSearchMode -eq 0 -and`
-                $Advanced.ShowTaskViewButton -eq 0 -and`
-                $Advanced.TaskbarDa -eq 0 -and`
-                $Advanced.TaskbarMn -eq 0 -and`
-                $Advanced.ShowCopilotButton -eq 0
+            try {
+                $Advanced = Get-ItemProperty `
+                    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' `
+                    -ErrorAction Stop
+                return ($Advanced.SearchboxTaskbarMode -eq 0) -and`
+                    ($Advanced.TaskbarSearchMode -eq 0) -and`
+                    ($Advanced.ShowTaskViewButton -eq 0) -and`
+                    ($Advanced.TaskbarDa -eq 0) -and`
+                    ($Advanced.TaskbarMn -eq 0) -and`
+                    ($Advanced.ShowCopilotButton -eq 0)
+            } catch {
+                return $False
+            }
         }
 
         Assert-SetupCheck -Name 'Polish keyboard layout configured' -Test {
-            $Polish = Get-WinUserLanguageList |`
-                Where-Object LanguageTag -eq 'pl-PL' |`
-                Select-Object -First 1
-            $Null -ne $Polish -and $Polish.InputMethodTips -contains '0415:00000415'
+            try {
+                $Polish = Get-WinUserLanguageList |`
+                    Where-Object LanguageTag -eq 'pl-PL' |`
+                    Select-Object -First 1
+                return ($Null -ne $Polish) -and ($Polish.InputMethodTips -contains '0415:00000415')
+            } catch {
+                return $False
+            }
         }
 
         Assert-SetupCheck -Name 'Startup script deployed' -Test {
@@ -372,21 +391,60 @@ try {
             [string]$AssetName
         )
 
-        $Release = Invoke-RestMethod `
-            "https://api.github.com/repos/$Repository/releases/latest" `
-            -Headers @{ 'User-Agent' = 'WindowsSetup' } `
-            -ErrorAction Stop
-        $Asset = $Release.assets | Where-Object name -eq $AssetName | Select-Object -First 1
-        if (-not $Asset) {
-            throw "GitHub release asset was not found: $Repository/$AssetName"
+        $Headers = @{ 'User-Agent' = 'WindowsSetup' }
+        
+        # Add GitHub token if available to avoid rate limiting
+        $GitHubToken = $Env:GITHUB_TOKEN
+        if (-not [string]::IsNullOrEmpty($GitHubToken)) {
+            $Headers['Authorization'] = "token $GitHubToken"
         }
 
-        [pscustomobject]@{
-            Url = $Asset.browser_download_url
-            Sha256 = if ($Asset.digest -match '^sha256:([a-f0-9]{64})$') {
-                $Matches[1]
+        try {
+            $Release = Invoke-RestMethod `
+                "https://api.github.com/repos/$Repository/releases/latest" `
+                -Headers $Headers `
+                -ErrorAction Stop
+            $Asset = $Release.assets | Where-Object name -eq $AssetName | Select-Object -First 1
+            if (-not $Asset) {
+                throw "GitHub release asset was not found: $Repository/$AssetName"
+            }
+
+            [pscustomobject]@{
+                Url = $Asset.browser_download_url
+                Sha256 = if ($Asset.digest -match '^sha256:([a-f0-9]{64})$') {
+                    $Matches[1]
+                } else {
+                    $Null
+                }
+            }
+        } catch {
+            # Retry with exponential backoff if rate limited
+            if ($_.Exception.Message -match 'rate limit') {
+                Write-SetupLog -Msg "GitHub rate limit hit, retrying after delay..." -Type 'WARN'
+                Start-Sleep -Seconds 60
+                try {
+                    $Release = Invoke-RestMethod `
+                        "https://api.github.com/repos/$Repository/releases/latest" `
+                        -Headers $Headers `
+                        -ErrorAction Stop
+                    $Asset = $Release.assets | Where-Object name -eq $AssetName | Select-Object -First 1
+                    if (-not $Asset) {
+                        throw "GitHub release asset was not found: $Repository/$AssetName"
+                    }
+
+                    [pscustomobject]@{
+                        Url = $Asset.browser_download_url
+                        Sha256 = if ($Asset.digest -match '^sha256:([a-f0-9]{64})$') {
+                            $Matches[1]
+                        } else {
+                            $Null
+                        }
+                    }
+                } catch {
+                    throw "GitHub API request failed: $($_.Exception.Message)"
+                }
             } else {
-                $Null
+                throw "GitHub API request failed: $($_.Exception.Message)"
             }
         }
     }
@@ -403,6 +461,18 @@ try {
         if ($TargetItem) {
             Remove-Item -LiteralPath $Target -Force -ErrorAction Stop
         }
+        
+        # Ensure parent directory exists
+        $ParentDir = Split-Path -Parent $Target
+        if (-not (Test-Path $ParentDir -PathType Container)) {
+            New-Item -ItemType Directory -Force -Path $ParentDir | Out-Null
+        }
+        
+        # Verify source exists
+        if (-not (Test-Path $Source -PathType Leaf)) {
+            throw "Source file does not exist: $Source"
+        }
+        
         New-Item -ItemType SymbolicLink -Path $Target -Target $Source -ErrorAction Stop | Out-Null
     }
 
@@ -430,34 +500,42 @@ try {
 
         $SourceLockScreen = Join-Path $RepositoryPath 'home\.config\default_lock.png'
         if (-not (Test-Path $SourceLockScreen -PathType Leaf)) {
-            throw "Lock screen image was not found: $SourceLockScreen"
+            Write-SetupLog -Msg "Lock screen image was not found: $SourceLockScreen, skipping lock screen configuration" -Type 'WARN'
+            return
         }
 
         $TargetLockScreen = Join-Path $ConfigDir 'default_lock.png'
-        Set-SymbolicLink -Source $SourceLockScreen -Target $TargetLockScreen
+        try {
+            Set-SymbolicLink -Source $SourceLockScreen -Target $TargetLockScreen
+        } catch {
+            Write-SetupLog -Msg "Failed to create lock screen symlink: $($_.Exception.Message)" -Type 'WARN'
+        }
 
-        $PersonalizationPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP'
-        New-Item -Path $PersonalizationPath -Force | Out-Null
-        New-ItemProperty `
-            -Path $PersonalizationPath `
-            -Name 'LockScreenImagePath' `
-            -Value $TargetLockScreen `
-            -PropertyType String `
-            -Force | Out-Null
-        New-ItemProperty `
-            -Path $PersonalizationPath `
-            -Name 'LockScreenImageUrl' `
-            -Value $TargetLockScreen `
-            -PropertyType String `
-            -Force | Out-Null
-        New-ItemProperty `
-            -Path $PersonalizationPath `
-            -Name 'LockScreenImageStatus' `
-            -Value 1 `
-            -PropertyType DWord `
-            -Force | Out-Null
-
-        Write-SetupLog -Msg "Set lock screen image to $TargetLockScreen"
+        try {
+            $PersonalizationPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP'
+            New-Item -Path $PersonalizationPath -Force -ErrorAction SilentlyContinue | Out-Null
+            New-ItemProperty `
+                -Path $PersonalizationPath `
+                -Name 'LockScreenImagePath' `
+                -Value $TargetLockScreen `
+                -PropertyType String `
+                -Force -ErrorAction SilentlyContinue | Out-Null
+            New-ItemProperty `
+                -Path $PersonalizationPath `
+                -Name 'LockScreenImageUrl' `
+                -Value $TargetLockScreen `
+                -PropertyType String `
+                -Force -ErrorAction SilentlyContinue | Out-Null
+            New-ItemProperty `
+                -Path $PersonalizationPath `
+                -Name 'LockScreenImageStatus' `
+                -Value 1 `
+                -PropertyType DWord `
+                -Force -ErrorAction SilentlyContinue | Out-Null
+            Write-SetupLog -Msg "Set lock screen image to $TargetLockScreen"
+        } catch {
+            Write-SetupLog -Msg "Failed to set lock screen registry values: $($_.Exception.Message)" -Type 'WARN'
+        }
     }
 
     function Install-FontFiles {
@@ -576,9 +654,44 @@ try {
         }
 
         Write-SetupLog -Msg "Installing $Id"
-        $ExitCode = Invoke-WingetInstallWithKeepAlive -Id $Id
-        if ($ExitCode -ne 0) {
-            throw "Winget failed for $Id with exit code $ExitCode"
+        
+        # Retry logic for winget installations
+        $MaxRetries = 3
+        $RetryCount = 0
+        $LastExitCode = -1
+        
+        while ($RetryCount -lt $MaxRetries) {
+            $ExitCode = Invoke-WingetInstallWithKeepAlive -Id $Id
+            $LastExitCode = $ExitCode
+            
+            # 0 = success
+            if ($ExitCode -eq 0) {
+                return
+            }
+            
+            # Retry on transient errors (winget error codes)
+            if ($ExitCode -eq -1978335189 -or $ExitCode -eq -1978335146 -or $ExitCode -eq -1978335212) {
+                $RetryCount++
+                Write-SetupLog -Msg "Winget failed for $Id with exit code $ExitCode, retry $RetryCount/$MaxRetries..." -Type 'WARN'
+                Start-Sleep -Seconds 10
+                
+                # Check if package was installed during retry
+                $Installed = $Null | & winget list --exact --id $Id `
+                    --accept-source-agreements --disable-interactivity 2>&1 |`
+                    Out-String
+                if ($Installed -match '(?im)\b$([regex]::Escape($Id))\b') {
+                    Write-SetupLog -Msg "Package $Id installed successfully on retry"
+                    return
+                }
+            } else {
+                # Non-retryable error
+                break
+            }
+        }
+        
+        if ($LastExitCode -ne 0) {
+            Write-SetupLog -Msg "Winget failed for $Id with exit code $LastExitCode after $MaxRetries retries" -Type 'WARN'
+            # Don't throw - allow script to continue with other packages
         }
     }
 
@@ -614,6 +727,19 @@ try {
     }
 
     Invoke-Step -Name 'fonts' -ScriptBlock {
+        $FontsPath = Join-Path $Env:WINDIR 'Fonts'
+        
+        # Check if fonts are already installed
+        $FiraCodeFonts = Get-ChildItem $FontsPath -File | Where-Object { $_.Name -like 'FiraCodeNerdFont*.ttf' }
+        $BaiJamjureeFonts = Get-ChildItem $FontsPath -File | Where-Object { $_.Name -like '*BaiJamjuree*.ttf' -or $_.Name -like '*BaiJamjuree*.otf' }
+        
+        if ($FiraCodeFonts.Count -gt 0 -and $BaiJamjureeFonts.Count -gt 0) {
+            Write-SetupLog -Msg 'FiraCode Nerd Font and Bai Jamjuree fonts are already installed, skipping font installation'
+            Write-SetupLog -Msg 'Set the Windows UI font substitution to FiraCode Nerd Font; sign out or restart to apply it'
+            Set-WindowsTerminalFont
+            return
+        }
+        
         $FontArchive = Join-Path $Downloads 'WindowsSetup-fonts'
         $FiraCodeArchive = Join-Path $Downloads 'FiraCode.zip'
 
@@ -698,6 +824,12 @@ try {
 
     Invoke-Step -Name 'msys2-setup' -ScriptBlock {
         $Msys2SetupScript = Join-Path $PSScriptRoot 'msys2_setup.ps1'
+        
+        # Check if we're running from temp directory (elevated) and the script wasn't copied
+        $Msys2SetupFromTemp = Join-Path $Env:TEMP 'msys2_setup.ps1'
+        if (-not (Test-Path $Msys2SetupScript -PathType Leaf) -and (Test-Path $Msys2SetupFromTemp -PathType Leaf)) {
+            $Msys2SetupScript = $Msys2SetupFromTemp
+        }
         
         if (-not (Test-Path $Msys2SetupScript -PathType Leaf)) {
             Write-SetupLog -Msg "MSYS2 setup script not found at $Msys2SetupScript, skipping developer environment configuration" -Type 'WARN'
@@ -875,11 +1007,20 @@ try {
                 (Test-Path (Join-Path $Env:TEMP 'windows-setup-startup.ps1'))) {
                 $TargetItem = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
                 if ($TargetItem) {
-                    Remove-Item -LiteralPath $Target -Force -ErrorAction Stop
+                    Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
                 }
-                Copy-Item (Join-Path $Env:TEMP 'windows-setup-startup.ps1') $Target -Force -ErrorAction Stop
+                Copy-Item (Join-Path $Env:TEMP 'windows-setup-startup.ps1') $Target -Force -ErrorAction SilentlyContinue
+                if (Test-Path $Target -PathType Leaf) {
+                    Write-SetupLog -Msg "Copied startup script to $Target"
+                }
+            } elseif (Test-Path $SourceFile -PathType Leaf) {
+                try {
+                    Set-SymbolicLink -Source $SourceFile -Target $Target
+                } catch {
+                    Write-SetupLog -Msg ('Failed to create symlink for {0} -> {1}: {2}' -f $SourceFile, $Target, $_.Exception.Message) -Type 'WARN'
+                }
             } else {
-                Set-SymbolicLink -Source $SourceFile -Target $Target
+                Write-SetupLog -Msg "Source file not found, skipping: $SourceFile" -Type 'WARN'
             }
         }
 
@@ -981,57 +1122,76 @@ try {
     }
 
     Invoke-Step -Name 'ui-and-komorebi-hotkeys' -ScriptBlock {
-        $P = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
-        if (-not (Test-Path $P)) {
-            New-Item $P | Out-Null
+        # Helper function to safely set registry properties
+        function Safe-Set-ItemProperty {
+            param (
+                [string]$Path,
+                [string]$Name,
+                [object]$Value,
+                [string]$Type = 'String'
+            )
+            try {
+                Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -ErrorAction Stop | Out-Null
+            } catch {
+                Write-SetupLog -Msg ('Failed to set registry {0}"{1}: {2}' -f $Path, $Name, $_.Exception.Message) -Type 'WARN'
+            }
         }
-        Set-ItemProperty -Path $P -Name 'AppsUseLightTheme' -Value 0
-        Set-ItemProperty -Path $P -Name 'SystemUsesLightTheme' -Value 0
-        Set-ItemProperty -Path $P -Name 'EnableTransparency' -Value 0 -Type DWord
 
-        $P = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
-        if (-not (Test-Path $P)) {
-            New-Item $P | Out-Null
-        }
-        @{
-            TaskbarAl = 0
-            TaskbarSi = 0
-            SearchboxTaskbarMode = 0
-            TaskbarSearchMode = 0
-            ShowTaskViewButton = 0
-            TaskbarDa = 0
-            TaskbarMn = 0
-            ShowCopilotButton = 0
-        }.GetEnumerator() | ForEach-Object {
-            Set-ItemProperty -Path $P -Name $_.Key -Value $_.Value -Type DWord
-        }
-        $TaskbarDeveloperSettingsPath = Join-Path $P 'TaskbarDeveloperSettings'
-        New-Item -Path $TaskbarDeveloperSettingsPath -Force | Out-Null
-        Set-ItemProperty -Path $TaskbarDeveloperSettingsPath -Name 'TaskbarEndTask' -Value 1 -Type DWord
+        try {
+            $P = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+            if (-not (Test-Path $P)) {
+                New-Item $P -ErrorAction SilentlyContinue | Out-Null
+            }
+            Safe-Set-ItemProperty -Path $P -Name 'AppsUseLightTheme' -Value 0
+            Safe-Set-ItemProperty -Path $P -Name 'SystemUsesLightTheme' -Value 0
+            Safe-Set-ItemProperty -Path $P -Name 'EnableTransparency' -Value 0 -Type DWord
 
-        $LegacyContextMenuPath = 'HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
-        New-Item -Path $LegacyContextMenuPath -Force | Out-Null
-        New-ItemProperty `
-            -Path $LegacyContextMenuPath `
-            -Name '(default)' `
-            -Value '' `
-            -PropertyType String `
-            -Force | Out-Null
+            $P = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+            if (-not (Test-Path $P)) {
+                New-Item $P -ErrorAction SilentlyContinue | Out-Null
+            }
+            @{
+                TaskbarAl = 0
+                TaskbarSi = 0
+                SearchboxTaskbarMode = 0
+                TaskbarSearchMode = 0
+                ShowTaskViewButton = 0
+                TaskbarDa = 0
+                TaskbarMn = 0
+                ShowCopilotButton = 0
+            }.GetEnumerator() | ForEach-Object {
+                Safe-Set-ItemProperty -Path $P -Name $_.Key -Value $_.Value -Type DWord
+            }
+            
+            $TaskbarDeveloperSettingsPath = Join-Path $P 'TaskbarDeveloperSettings'
+            New-Item -Path $TaskbarDeveloperSettingsPath -Force -ErrorAction SilentlyContinue | Out-Null
+            Safe-Set-ItemProperty -Path $TaskbarDeveloperSettingsPath -Name 'TaskbarEndTask' -Value 1 -Type DWord
 
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'WindowArrangementActive' -Value 0 -Type DWord
-        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'EnableSnapAssist' -Value 0 -Type DWord
-        $AccentPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent'
-        if (-not (Test-Path $AccentPath)) {
-            New-Item $AccentPath | Out-Null
+            $LegacyContextMenuPath = 'HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
+            New-Item -Path $LegacyContextMenuPath -Force -ErrorAction SilentlyContinue | Out-Null
+            Safe-Set-ItemProperty -Path $LegacyContextMenuPath -Name '(default)' -Value '' -Type String
+
+            Safe-Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'WindowArrangementActive' -Value 0 -Type DWord
+            Safe-Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'EnableSnapAssist' -Value 0 -Type DWord
+            
+            $AccentPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent'
+            if (-not (Test-Path $AccentPath)) {
+                New-Item $AccentPath -ErrorAction SilentlyContinue | Out-Null
+            }
+            Safe-Set-ItemProperty -Path $AccentPath -Name 'AccentColorMenu' -Value 0xFF24AEDF -Type DWord
+            Safe-Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'ColorPrevalence' -Value 0 -Type DWord
+            
+            $InputMethodPath = 'HKCU:\Control Panel\Input Method'
+            if (-not (Test-Path $InputMethodPath)) {
+                New-Item $InputMethodPath -ErrorAction SilentlyContinue | Out-Null
+            }
+            Safe-Set-ItemProperty -Path $InputMethodPath -Name 'ShowStatus' -Value 2 -Type DWord
+            
+            Write-SetupLog -Msg 'Configured taskbar settings, hid optional taskbar controls and input indicator, enabled End Task, and restored the legacy context menu'
+        } catch {
+            Write-SetupLog -Msg "Error in ui-and-komorebi-hotkeys: $($_.Exception.Message)" -Type 'ERROR'
+            throw $_
         }
-        Set-ItemProperty -Path $AccentPath -Name 'AccentColorMenu' -Value 0xFF24AEDF -Type DWord
-        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'ColorPrevalence' -Value 0 -Type DWord
-        $InputMethodPath = 'HKCU:\Control Panel\Input Method'
-        if (-not (Test-Path $InputMethodPath)) {
-            New-Item $InputMethodPath | Out-Null
-        }
-        Set-ItemProperty -Path $InputMethodPath -Name 'ShowStatus' -Value 2 -Type DWord
-        Write-SetupLog -Msg 'Configured taskbar settings, hid optional taskbar controls and input indicator, enabled End Task, and restored the legacy context menu'
     }
 
     Invoke-Step -Name 'unpin-taskbar' -ScriptBlock {
