@@ -656,6 +656,8 @@ try {
         Write-SetupLog -Msg "Installing $Id"
         
         # Retry logic for winget installations
+        # Note: Exit code -1978335189 means "No available upgrade found" or "No newer package versions"
+        # which is effectively a success condition (package is already installed)
         $MaxRetries = 3
         $RetryCount = 0
         $LastExitCode = -1
@@ -665,12 +667,15 @@ try {
             $LastExitCode = $ExitCode
             
             # 0 = success
-            if ($ExitCode -eq 0) {
+            # -1978335189 = No upgrade available (package already installed/up-to-date) - treat as success
+            if ($ExitCode -eq 0 -or $ExitCode -eq -1978335189) {
+                Write-SetupLog -Msg "Package $Id installed or already up-to-date"
                 return
             }
             
-            # Retry on transient errors (winget error codes)
-            if ($ExitCode -eq -1978335189 -or $ExitCode -eq -1978335146 -or $ExitCode -eq -1978335212) {
+            # Retry on specific transient errors (winget error codes)
+            # -1978335146 and -1978335212 are known transient errors that may resolve on retry
+            if ($ExitCode -eq -1978335146 -or $ExitCode -eq -1978335212) {
                 $RetryCount++
                 Write-SetupLog -Msg "Winget failed for $Id with exit code $ExitCode, retry $RetryCount/$MaxRetries..." -Type 'WARN'
                 Start-Sleep -Seconds 10
@@ -689,7 +694,7 @@ try {
             }
         }
         
-        if ($LastExitCode -ne 0) {
+        if ($LastExitCode -ne 0 -and $LastExitCode -ne -1978335189) {
             Write-SetupLog -Msg "Winget failed for $Id with exit code $LastExitCode after $MaxRetries retries" -Type 'WARN'
             # Don't throw - allow script to continue with other packages
         }
