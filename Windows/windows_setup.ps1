@@ -815,7 +815,7 @@ try {
             'AutoHotkey.AutoHotkey',
             'Microsoft.PowerToys',
             'Microsoft.PowerShell',
-            'msys2.msys2'
+            'MSYS2.MSYS2'
         )
 
         try {
