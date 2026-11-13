@@ -104,6 +104,8 @@ if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]`
     
     Remove-Item $ElevatedScript -Force -ErrorAction SilentlyContinue
     Remove-Item $ElevatedStartupScript -Force -ErrorAction SilentlyContinue
+    Remove-Item $ElevatedFunctionsScript -Force -ErrorAction SilentlyContinue
+    Remove-Item $ElevatedMsys2Script -Force -ErrorAction SilentlyContinue
     exit $Process.ExitCode
 }
 
@@ -748,55 +750,61 @@ try {
         $FontArchive = Join-Path $Downloads 'WindowsSetup-fonts'
         $FiraCodeArchive = Join-Path $Downloads 'FiraCode.zip'
 
-        $FiraCodeAsset = Get-LatestGitHubAsset -Repository 'ryanoasis/nerd-fonts' -AssetName 'FiraCode.zip'
-        Get-File -Url $FiraCodeAsset.Url -Out $FiraCodeArchive -ExpectedSha256 $FiraCodeAsset.Sha256
+        try {
+            $FiraCodeAsset = Get-LatestGitHubAsset -Repository 'ryanoasis/nerd-fonts' -AssetName 'FiraCode.zip'
+            Get-File -Url $FiraCodeAsset.Url -Out $FiraCodeArchive -ExpectedSha256 $FiraCodeAsset.Sha256
 
-        if (Test-Path $FontArchive) {
-            Remove-Item $FontArchive -Recurse -Force
+            if (Test-Path $FontArchive) {
+                Remove-Item $FontArchive -Recurse -Force
+            }
+            New-Item -ItemType Directory -Force -Path $FontArchive | Out-Null
+
+            $FiraCodeDirectory = Join-Path $FontArchive 'FiraCode'
+            $BaiJamjureeDirectory = Join-Path $FontArchive 'BaiJamjuree'
+            Expand-Archive $FiraCodeArchive $FiraCodeDirectory -Force
+
+            New-Item -ItemType Directory -Force -Path $BaiJamjureeDirectory | Out-Null
+            $BaiJamjureeAssets = Invoke-RestMethod `
+                'https://api.github.com/repos/google/fonts/contents/ofl/baijamjuree' `
+                -Headers @{ 'User-Agent' = 'WindowsSetup' } |`
+                Where-Object { $_.Name -match '\.(ttf|otf)$' }
+            foreach ($Asset in $BaiJamjureeAssets) {
+                Get-File -Url "https://raw.githubusercontent.com/google/fonts/main/ofl/baijamjuree/$($Asset.Name)" `
+                    -Out (Join-Path $BaiJamjureeDirectory $Asset.Name)
+            }
+
+            $FiraCodeFiles = Get-ChildItem $FiraCodeDirectory -Recurse -File |`
+                Where-Object { $_.Name -like 'FiraCodeNerdFont*.ttf' }
+            $BaiJamjureeFiles = Get-ChildItem $BaiJamjureeDirectory -Recurse -File |`
+                Where-Object { $_.Extension -in @('.ttf', '.otf') }
+
+            if (-not $FiraCodeFiles) {
+                throw 'FiraCode Nerd Font files were not found in the downloaded archive.'
+            }
+            if (-not $BaiJamjureeFiles) {
+                throw 'Bai Jamjuree font files were not found in the downloaded archive.'
+            }
+
+            Install-FontFiles (@($FiraCodeFiles) + @($BaiJamjureeFiles))
+
+            $FontSubstitutesPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontSubstitutes'
+            New-Item -Path $FontSubstitutesPath -Force | Out-Null
+            New-ItemProperty `
+                -Path $FontSubstitutesPath `
+                -Name 'Segoe UI' `
+                -Value 'FiraCode Nerd Font' `
+                -PropertyType String `
+                -Force | Out-Null
+
+            Write-SetupLog -Msg 'Installed FiraCode NF, FiraCode Mono NF, and Bai Jamjuree system-wide'
+            Write-SetupLog -Msg 'Set the Windows UI font substitution to FiraCode Nerd Font; sign out or restart to apply it'
+
+            Set-WindowsTerminalFont
+        } finally {
+            # Clean up font archive directory and downloaded zip
+            Remove-Item $FontArchive -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item $FiraCodeArchive -Force -ErrorAction SilentlyContinue
         }
-        New-Item -ItemType Directory -Force -Path $FontArchive | Out-Null
-
-        $FiraCodeDirectory = Join-Path $FontArchive 'FiraCode'
-        $BaiJamjureeDirectory = Join-Path $FontArchive 'BaiJamjuree'
-        Expand-Archive $FiraCodeArchive $FiraCodeDirectory -Force
-
-        New-Item -ItemType Directory -Force -Path $BaiJamjureeDirectory | Out-Null
-        $BaiJamjureeAssets = Invoke-RestMethod `
-            'https://api.github.com/repos/google/fonts/contents/ofl/baijamjuree' `
-            -Headers @{ 'User-Agent' = 'WindowsSetup' } |`
-            Where-Object { $_.Name -match '\.(ttf|otf)$' }
-        foreach ($Asset in $BaiJamjureeAssets) {
-            Get-File -Url "https://raw.githubusercontent.com/google/fonts/main/ofl/baijamjuree/$($Asset.Name)" `
-                -Out (Join-Path $BaiJamjureeDirectory $Asset.Name)
-        }
-
-        $FiraCodeFiles = Get-ChildItem $FiraCodeDirectory -Recurse -File |`
-            Where-Object { $_.Name -like 'FiraCodeNerdFont*.ttf' }
-        $BaiJamjureeFiles = Get-ChildItem $BaiJamjureeDirectory -Recurse -File |`
-            Where-Object { $_.Extension -in @('.ttf', '.otf') }
-
-        if (-not $FiraCodeFiles) {
-            throw 'FiraCode Nerd Font files were not found in the downloaded archive.'
-        }
-        if (-not $BaiJamjureeFiles) {
-            throw 'Bai Jamjuree font files were not found in the downloaded archive.'
-        }
-
-        Install-FontFiles (@($FiraCodeFiles) + @($BaiJamjureeFiles))
-
-        $FontSubstitutesPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontSubstitutes'
-        New-Item -Path $FontSubstitutesPath -Force | Out-Null
-        New-ItemProperty `
-            -Path $FontSubstitutesPath `
-            -Name 'Segoe UI' `
-            -Value 'FiraCode Nerd Font' `
-            -PropertyType String `
-            -Force | Out-Null
-
-        Write-SetupLog -Msg 'Installed FiraCode NF, FiraCode Mono NF, and Bai Jamjuree system-wide'
-        Write-SetupLog -Msg 'Set the Windows UI font substitution to FiraCode Nerd Font; sign out or restart to apply it'
-
-        Set-WindowsTerminalFont
     }
 
     Invoke-Step -Name 'packages' -ScriptBlock {
@@ -810,20 +818,25 @@ try {
             'msys2.msys2'
         )
 
-        Get-RawRepositoryFile -RelativePath 'Windows/winget-packages.txt' -Out $PackageList
+        try {
+            Get-RawRepositoryFile -RelativePath 'Windows/winget-packages.txt' -Out $PackageList
 
-        $AllRecommendedPackages = Get-Content $PackageList |`
-            ForEach-Object { $_.Trim() } |`
-            Where-Object { $_ -and -not $_.StartsWith('#') }
+            $AllRecommendedPackages = Get-Content $PackageList |`
+                ForEach-Object { $_.Trim() } |`
+                Where-Object { $_ -and -not $_.StartsWith('#') }
 
-        $PackagesToInstall = if ($InstallAllRecommendedPackages) {
-            $AllRecommendedPackages
-        } else {
-            $StrictlyNecessaryPackages
-        }
+            $PackagesToInstall = if ($InstallAllRecommendedPackages) {
+                $AllRecommendedPackages
+            } else {
+                $StrictlyNecessaryPackages
+            }
 
-        foreach ($PackageId in $PackagesToInstall) {
-            Install-SetupPackage -Id $PackageId
+            foreach ($PackageId in $PackagesToInstall) {
+                Install-SetupPackage -Id $PackageId
+            }
+        } finally {
+            # Clean up the temporary package list file
+            Remove-Item $PackageList -Force -ErrorAction SilentlyContinue
         }
     }
 
