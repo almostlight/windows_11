@@ -47,11 +47,40 @@ $SetupRunId = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
 $WorkPath = Join-Path $Env:TEMP "WindowsSetup-$PID"
 
 # Dot-source shared functions
-$SetupFunctionsPath = Join-Path $PSScriptRoot 'SetupFunctions.ps1'
-if (Test-Path $SetupFunctionsPath) {
-    . $SetupFunctionsPath
+$SetupFunctionsPath = if ($PSScriptRoot) {
+    Join-Path $PSScriptRoot 'SetupFunctions.ps1'
 } else {
-    throw "SetupFunctions.ps1 not found at $SetupFunctionsPath"
+    $Null
+}
+
+if ($SetupFunctionsPath -and (Test-Path $SetupFunctionsPath)) {
+    . $SetupFunctionsPath
+} elseif ($PSCommandPath) {
+    # If running from a file path (even via pipeline), try to find SetupFunctions.ps1 in the same directory
+    $ScriptDirectory = Split-Path $PSCommandPath -Parent
+    if ($ScriptDirectory -and (Test-Path (Join-Path $ScriptDirectory 'SetupFunctions.ps1'))) {
+        . (Join-Path $ScriptDirectory 'SetupFunctions.ps1')
+    } else {
+        # Download from repository as fallback
+        $TempFunctionsPath = Join-Path $Env:TEMP "SetupFunctions-$PID.ps1"
+        try {
+            Invoke-WebRequest "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/SetupFunctions.ps1" -OutFile $TempFunctionsPath -UseBasicParsing -ErrorAction Stop
+            . $TempFunctionsPath
+            Remove-Item $TempFunctionsPath -Force -ErrorAction SilentlyContinue
+        } catch {
+            throw "SetupFunctions.ps1 not found locally and could not be downloaded: $_"
+        }
+    }
+} else {
+    # Running from pipeline (e.g., irm | iex), download SetupFunctions.ps1
+    $TempFunctionsPath = Join-Path $Env:TEMP "SetupFunctions-$PID.ps1"
+    try {
+        Invoke-WebRequest "https://raw.githubusercontent.com/almostlight/WindowsSetup/main/Windows/SetupFunctions.ps1" -OutFile $TempFunctionsPath -UseBasicParsing -ErrorAction Stop
+        . $TempFunctionsPath
+        Remove-Item $TempFunctionsPath -Force -ErrorAction SilentlyContinue
+    } catch {
+        throw "SetupFunctions.ps1 could not be downloaded: $_"
+    }
 }
 
 if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal]`
